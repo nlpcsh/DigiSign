@@ -1,0 +1,13 @@
+# Core dependencies
+pillow>=9.0.0
+fitz>=0.0.1.dev0
+PyPDF2>=3.0.0
+reportlab>=3.6.0
+cryptography>=38.0.0
+
+# For enhanced PDF signing (optional but recommended)
+pyhanko>=0.17.0  # Provides full X.509 certificate-based PDF signing
+pyhanko-certvalidator>=0.16.0  # Certificate validation support
+
+# Type hints
+typing-extensions>=4.0.0
