@@ -123,10 +123,10 @@ class PdfSigner:
             if self.certificate_combo:
                 self.certificate_combo['values'] = cert_names
 
-                if cert_names:
-                    self.certificate_combo.current(0)
-                    self.on_certificate_selected()
-                else:
+                # Apply certificate preferences after loading
+                self._apply_certificate_preferences()
+
+                if not cert_names:
                     self.certificate_status_label.config(
                         text="No certificates found in store",
                         fg="#d9534f"
@@ -201,6 +201,76 @@ class PdfSigner:
         except Exception:
             # If we can't parse, assume it's not expired
             return False
+        """Apply saved certificate preferences to the current certificate list"""
+        # Load and select certificate by thumbprint (preferred) or friendly name
+        cert_thumbprint = Preferences.get_selected_certificate_thumbprint()
+        cert_friendly_name = Preferences.get_selected_certificate_friendly_name()
+
+        selected_index = -1
+
+        for idx, cert in enumerate(self.available_certificates):
+            # Try to match by thumbprint first
+            if cert_thumbprint and cert.thumbprint == cert_thumbprint:
+                selected_index = idx
+                break
+            # Fallback to friendly name
+            if cert_friendly_name and cert.friendly_name == cert_friendly_name:
+                selected_index = idx
+                break
+
+        # Select the found certificate, or default to first certificate if none found
+        if selected_index >= 0:
+            self.certificate_combo.current(selected_index)
+            self.on_certificate_selected()
+        elif self.available_certificates:
+            # No saved preference found, select first certificate as default
+            self.certificate_combo.current(0)
+            self.on_certificate_selected()
+        else:
+            # No certificates available
+            self.selected_certificate = None
+            self.certificate_status_label.config(
+                text="No certificates available",
+                fg="#666"
+            )
+            if self.signer_name_label:
+                self.signer_name_label.config(text="(From certificate)")
+
+    def _apply_certificate_preferences(self) -> None:
+        """Apply saved certificate preferences to the current certificate list"""
+        # Load and select certificate by thumbprint (preferred) or friendly name
+        cert_thumbprint = Preferences.get_selected_certificate_thumbprint()
+        cert_friendly_name = Preferences.get_selected_certificate_friendly_name()
+
+        selected_index = -1
+
+        for idx, cert in enumerate(self.available_certificates):
+            # Try to match by thumbprint first
+            if cert_thumbprint and cert.thumbprint == cert_thumbprint:
+                selected_index = idx
+                break
+            # Fallback to friendly name
+            if cert_friendly_name and cert.friendly_name == cert_friendly_name:
+                selected_index = idx
+                break
+
+        # Select the found certificate, or default to first certificate if none found
+        if selected_index >= 0:
+            self.certificate_combo.current(selected_index)
+            self.on_certificate_selected()
+        elif self.available_certificates:
+            # No saved preference found, select first certificate as default
+            self.certificate_combo.current(0)
+            self.on_certificate_selected()
+        else:
+            # No certificates available
+            self.selected_certificate = None
+            self.certificate_status_label.config(
+                text="No certificates available",
+                fg="#666"
+            )
+            if self.signer_name_label:
+                self.signer_name_label.config(text="(From certificate)")
 
     def load_preferences(self) -> None:
         """Load and apply saved preferences (signature image and certificate)."""
@@ -210,21 +280,8 @@ class PdfSigner:
             self.signature_image_path = sig_image_path
             self.update_signature_image_label()
 
-        # Load and select certificate by thumbprint (preferred) or friendly name
-        cert_thumbprint = Preferences.get_selected_certificate_thumbprint()
-        cert_friendly_name = Preferences.get_selected_certificate_friendly_name()
-
-        for idx, cert in enumerate(self.available_certificates):
-            # Try to match by thumbprint first
-            if cert_thumbprint and cert.thumbprint == cert_thumbprint:
-                self.certificate_combo.current(idx)
-                self.on_certificate_selected()
-                return
-            # Fallback to friendly name
-            if cert_friendly_name and cert.friendly_name == cert_friendly_name:
-                self.certificate_combo.current(idx)
-                self.on_certificate_selected()
-                return
+        # Apply certificate preferences
+        self._apply_certificate_preferences()
 
     def load_signature_image(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All files", "*.*")])
