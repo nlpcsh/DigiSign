@@ -164,7 +164,7 @@ class PdfSigner:
 
             # Update status label with certificate info
             status_text = f"Subject: {cert.friendly_name}\n"
-            status_text += f"Valid: {cert.valid_from}\nto {cert.valid_to}"
+            status_text += f"Valid to: {cert.valid_to}"
             self.certificate_status_label.config(text=status_text, fg="#5cb85c")
 
             # Extract and display signer name from certificate

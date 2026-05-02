@@ -16,7 +16,6 @@ class CertificateInfo:
     subject: str
     issuer: str
     thumbprint: str
-    valid_from: str
     valid_to: str
     friendly_name: str
     cert_path: Optional[str] = None  # Path to exported cert file
@@ -40,7 +39,6 @@ foreach ($cert in $certs) {
         FriendlyName = $cert.FriendlyName
         Subject = $cert.Subject
         Thumbprint = $cert.Thumbprint
-        NotBefore = $cert.NotBefore.ToString('o')
         NotAfter = $cert.NotAfter.ToString('o')
         Issuer = $cert.Issuer
     }
@@ -68,8 +66,7 @@ $result | ConvertTo-Json -Depth 2
                                 subject=cert_dict.get('Subject', ''),
                                 issuer=cert_dict.get('Issuer', ''),
                                 thumbprint=cert_dict.get('Thumbprint', ''),
-                                valid_from=cert_dict.get('NotBefore', ''),
-                                valid_to=cert_dict.get('NotAfter', ''),
+                                valid_to=cert_dict.get('NotAfter', '').split('T')[0],
                                 friendly_name=friendly_name
                             )
                             certificates.append(cert_info)
@@ -118,8 +115,7 @@ $result | ConvertTo-Json -Depth 2
             # Calculate thumbprint (SHA-1 hash)
             thumbprint = cert.fingerprint(hashes.SHA1()).hex().upper()
 
-            valid_from = cert.not_valid_before.isoformat()
-            valid_to = cert.not_valid_after.isoformat()
+            valid_to = cert.not_valid_after.isoformat().split('T')[0]
 
             friendly_name = CertificateManager._extract_cn(subject)
 
@@ -127,7 +123,6 @@ $result | ConvertTo-Json -Depth 2
                 subject=subject,
                 issuer=issuer,
                 thumbprint=thumbprint,
-                valid_from=valid_from,
                 valid_to=valid_to,
                 friendly_name=friendly_name,
                 cert_path=cert_path
