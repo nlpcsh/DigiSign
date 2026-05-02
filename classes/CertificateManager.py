@@ -103,9 +103,14 @@ $result | ConvertTo-Json -Depth 2
             # Try PEM first
             try:
                 cert = x509.load_pem_x509_certificate(cert_data, default_backend())
-            except Exception:
+            except Exception as pem_exc:
                 # Try DER
-                cert = x509.load_der_x509_certificate(cert_data, default_backend())
+                try:
+                    cert = x509.load_der_x509_certificate(cert_data, default_backend())
+                except Exception as der_exc:
+                    print(f"Failed to load as PEM: {pem_exc}")
+                    print(f"Failed to load as DER: {der_exc}")
+                    return None
 
             subject = cert.subject.rfc4514_string()
             issuer = cert.issuer.rfc4514_string()
@@ -117,6 +122,10 @@ $result | ConvertTo-Json -Depth 2
 
             friendly_name = CertificateManager._extract_cn(subject)
 
+            print(f"Successfully loaded PEM/DER certificate from {cert_path}")
+            print(f"  Subject: {subject}")
+            print(f"  Thumbprint: {thumbprint}")
+
             return CertificateInfo(
                 subject=subject,
                 issuer=issuer,
@@ -126,7 +135,10 @@ $result | ConvertTo-Json -Depth 2
                 cert_path=cert_path
             )
 
-        except Exception:
+        except Exception as exc:
+            print(f"Failed to load certificate file {cert_path}: {exc}")
+            import traceback
+            traceback.print_exc()
             return None
 
     @staticmethod
@@ -137,7 +149,10 @@ $result | ConvertTo-Json -Depth 2
             if ext in {'.pfx', '.p12'}:
                 return CertificateManager._load_pkcs12_certificate(cert_path, password=password)
             return CertificateManager._load_certificate_from_file(cert_path)
-        except Exception:
+        except Exception as exc:
+            print(f"Error loading certificate file {cert_path}: {exc}")
+            import traceback
+            traceback.print_exc()
             return None
 
     @staticmethod
@@ -149,13 +164,20 @@ $result | ConvertTo-Json -Depth 2
             with open(cert_path, 'rb') as f:
                 pfx_data = f.read()
 
-            cert, key, additional = load_key_and_certificates(
+            # Prepare password for PKCS#12 loading
+            pfx_password = None
+            if password:
+                pfx_password = password.encode() if isinstance(password, str) else password
+            
+            # load_key_and_certificates returns (private_key, certificate, additional_certs)
+            key, cert, additional = load_key_and_certificates(
                 pfx_data,
-                password.encode() if password else None,
+                pfx_password,
                 default_backend()
             )
 
             if cert is None:
+                print(f"No certificate found in PKCS#12 file: {cert_path}")
                 return None
 
             subject = cert.subject.rfc4514_string()
@@ -163,6 +185,10 @@ $result | ConvertTo-Json -Depth 2
             thumbprint = cert.fingerprint(hashes.SHA1()).hex().upper()
             valid_to = cert.not_valid_after.isoformat().split('T')[0]
             friendly_name = CertificateManager._extract_cn(subject)
+
+            print(f"Successfully loaded certificate from {cert_path}")
+            print(f"  Subject: {subject}")
+            print(f"  Thumbprint: {thumbprint}")
 
             return CertificateInfo(
                 subject=subject,
@@ -172,7 +198,10 @@ $result | ConvertTo-Json -Depth 2
                 friendly_name=friendly_name,
                 cert_path=cert_path
             )
-        except Exception:
+        except Exception as exc:
+            print(f"Failed to load PKCS#12 certificate {cert_path}: {exc}")
+            import traceback
+            traceback.print_exc()
             return None
 
     @staticmethod

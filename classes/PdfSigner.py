@@ -176,7 +176,15 @@ class PdfSigner:
 
         cert_info = CertificateManager.load_certificate_file(path, password=password)
         if not cert_info:
-            messagebox.showerror("Load certificate", "Unable to load certificate file. Check the file and password.")
+            messagebox.showerror(
+                "Load certificate",
+                f"Unable to load certificate file:\n{path}\n\n"
+                f"Check:\n"
+                f"- File format (must be .pfx/.p12 or PEM/DER)\n"
+                f"- File password (if password-protected)\n"
+                f"- File permissions and integrity\n\n"
+                f"See the terminal/console for detailed error messages."
+            )
             return
 
         self.available_certificates.append(cert_info)
