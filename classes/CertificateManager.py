@@ -118,7 +118,7 @@ $result | ConvertTo-Json -Depth 2
             # Calculate thumbprint (SHA-1 hash)
             thumbprint = cert.fingerprint(hashes.SHA1()).hex().upper()
 
-            valid_to = cert.not_valid_after.isoformat().split('T')[0]
+            valid_to = cert.not_valid_after_utc.isoformat().split('T')[0]
 
             friendly_name = CertificateManager._extract_cn(subject)
 
@@ -183,7 +183,7 @@ $result | ConvertTo-Json -Depth 2
             subject = cert.subject.rfc4514_string()
             issuer = cert.issuer.rfc4514_string()
             thumbprint = cert.fingerprint(hashes.SHA1()).hex().upper()
-            valid_to = cert.not_valid_after.isoformat().split('T')[0]
+            valid_to = cert.not_valid_after_utc.isoformat().split('T')[0]
             friendly_name = CertificateManager._extract_cn(subject)
 
             print(f"Successfully loaded certificate from {cert_path}")
