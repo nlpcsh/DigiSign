@@ -3,7 +3,7 @@ import tempfile
 from typing import Optional, Tuple
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from PIL import Image, ImageTk
 import fitz
@@ -53,6 +53,7 @@ class PdfSigner:
 
         tk.Button(toolbar, text="Open PDF", command=self.open_pdf).pack(side="left")
         tk.Button(toolbar, text="Refresh Certificates", command=self.load_certificates).pack(side="left", padx=(8, 0))
+        tk.Button(toolbar, text="Load certificate file", command=self.load_certificate_file).pack(side="left", padx=(8, 0))
 
         self.page_frame = tk.Frame(root)
         self.page_frame.pack(fill="x", padx=8)
@@ -118,7 +119,7 @@ class PdfSigner:
         self.selection_label.pack(anchor="w", pady=(0, 12))
 
         tk.Label(sidebar, text="Instructions:").pack(anchor="w")
-        tk.Label(sidebar, text="1) Select a certificate\n2) Open a PDF\n3) Drag to draw signature box\n4) Load signature image (optional)\n5) Click Sign PDF", justify="left", fg="#333333").pack(anchor="w")
+        tk.Label(sidebar, text="1) Select a certificate or load a certificate file\n2) Open a PDF\n3) Drag to draw signature box\n4) Load signature image (optional)\n5) Click Sign PDF", justify="left", fg="#333333").pack(anchor="w")
 
         tk.Button(sidebar, text="Sign PDF", command=self.complete_signing, bg="white", fg="blue").pack(fill="x", pady=(12, 0))
 
@@ -128,7 +129,7 @@ class PdfSigner:
         self.load_preferences()
 
     def load_certificates(self) -> None:
-        """Load available certificates from Windows certificate store"""
+        """Load available certificates from the local certificate directory and Windows store."""
         try:
             all_certificates = CertificateManager.list_certificates()
             # Filter out expired certificates
@@ -143,7 +144,7 @@ class PdfSigner:
 
                 if not cert_names:
                     self.certificate_status_label.config(
-                        text="No certificates found in store",
+                        text="No certificates found",
                         fg="#d9534f"
                     )
         except Exception as exc:
@@ -151,6 +152,45 @@ class PdfSigner:
                 text=f"Error loading certificates:\n{str(exc)[:50]}",
                 fg="#d9534f"
             )
+
+    def load_certificate_file(self) -> None:
+        """Allow the user to select a local certificate file for signing."""
+        path = filedialog.askopenfilename(
+            title="Load certificate file",
+            filetypes=[
+                ("PKCS#12 files", "*.pfx;*.p12"),
+                ("Certificate files", "*.pem;*.crt;*.cer"),
+                ("All files", "*.*")
+            ]
+        )
+        if not path:
+            return
+
+        password = None
+        if path.lower().endswith(('.pfx', '.p12')):
+            password = simpledialog.askstring(
+                "Certificate Password",
+                "Enter the password for the certificate file (leave blank if none):",
+                show="*"
+            )
+
+        cert_info = CertificateManager.load_certificate_file(path, password=password)
+        if not cert_info:
+            messagebox.showerror(
+                "Load certificate",
+                f"Unable to load certificate file:\n{path}\n\n"
+                f"Check:\n"
+                f"- File format (must be .pfx/.p12 or PEM/DER)\n"
+                f"- File password (if password-protected)\n"
+                f"- File permissions and integrity\n\n"
+                f"See the terminal/console for detailed error messages."
+            )
+            return
+
+        self.available_certificates.append(cert_info)
+        self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
+        self.certificate_combo.current(len(self.available_certificates) - 1)
+        self.on_certificate_selected()
 
     def on_certificate_selected(self, event: Optional[tk.Event] = None) -> None:
         """Handle certificate selection from dropdown"""
@@ -174,6 +214,7 @@ class PdfSigner:
             # Save preference
             Preferences.set_selected_certificate_thumbprint(cert.thumbprint)
             Preferences.set_selected_certificate_friendly_name(cert.friendly_name)
+            Preferences.set_selected_certificate_path(cert.cert_path)
         else:
             self.selected_certificate = None
             self.certificate_status_label.config(
@@ -185,6 +226,7 @@ class PdfSigner:
             # Clear preferences
             Preferences.set_selected_certificate_thumbprint(None)
             Preferences.set_selected_certificate_friendly_name(None)
+            Preferences.set_selected_certificate_path(None)
 
     def _extract_signer_name_from_cert(self, cert: Optional[CertificateInfo]) -> str:
         """Extract signer name from certificate subject"""
@@ -261,6 +303,15 @@ class PdfSigner:
         if sig_image_path and os.path.isfile(sig_image_path):
             self.signature_image_path = sig_image_path
             self.update_signature_image_label()
+
+        # Restore a saved certificate file path if needed
+        cert_file_path = Preferences.get_selected_certificate_path()
+        if cert_file_path and os.path.isfile(cert_file_path):
+            cert_info = CertificateManager.load_certificate_file(cert_file_path)
+            if cert_info and not any(c.thumbprint == cert_info.thumbprint for c in self.available_certificates):
+                self.available_certificates.append(cert_info)
+                if self.certificate_combo:
+                    self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
 
         # Apply certificate preferences
         self._apply_certificate_preferences()
@@ -358,15 +409,25 @@ class PdfSigner:
     def pdf_to_canvas_coords(self,x: float, y: float, page_size: Tuple[float, float]) -> Tuple[float, float]:
         page_w, page_h = page_size
         scale = min(CANVAS_WIDTH / page_w, CANVAS_HEIGHT / page_h)
-        canvas_x = x * scale
-        canvas_y = CANVAS_HEIGHT - (y * scale)
+        disp_w = int(page_w * scale)
+        disp_h = int(page_h * scale)
+        x_offset = (CANVAS_WIDTH - disp_w) / 2
+        y_offset = (CANVAS_HEIGHT - disp_h) / 2
+
+        canvas_x = x * scale + x_offset
+        canvas_y = CANVAS_HEIGHT - (y * scale) - y_offset
         return canvas_x, canvas_y
 
     def canvas_to_pdf_coords(self, x: float, y: float, page_size: Tuple[float, float]) -> Tuple[float, float]:
         page_w, page_h = page_size
         scale = min(CANVAS_WIDTH / page_w, CANVAS_HEIGHT / page_h)
-        pdf_x = x / scale
-        pdf_y = (CANVAS_HEIGHT - y) / scale
+        disp_w = int(page_w * scale)
+        disp_h = int(page_h * scale)
+        x_offset = (CANVAS_WIDTH - disp_w) / 2
+        y_offset = (CANVAS_HEIGHT - disp_h) / 2
+
+        pdf_x = (x - x_offset) / scale
+        pdf_y = (CANVAS_HEIGHT - y - y_offset) / scale
         return pdf_x, pdf_y
 
     def load_page(self, page_index: int) -> None:
@@ -564,13 +625,35 @@ class PdfSigner:
         signature_image_path: Optional[str] = None,
     ) -> None:
         c = canvas.Canvas(output_path, pagesize=(page_width, page_height))
-        c.setStrokeColorRGB(0, 0, 0)
+        c.setStrokeColorRGB(0.867, 0.894, 1.)
         c.setFillColorRGB(0, 0, 0)
         c.setLineWidth(1)
         c.rect(placement.x, placement.y, placement.width, placement.height)
 
-        text_x = placement.x + 0.08 * inch
-        text_y = placement.y + placement.height - 0.26 * inch
+        text_font_size = 8
+        # Calculate text positioning - center vertically in the signature box
+        text_lines = [
+            ("Digitally signed by:", "Helvetica-Bold", text_font_size),
+            (signer_name, "Helvetica", text_font_size),
+            (f"Reason: {signature_type}", "Helvetica", text_font_size),
+            (f"Date: {CertificateManager.get_current_time_iso()}", "Helvetica", text_font_size)
+        ]
+
+        # Calculate total text height
+        total_text_height = 0
+        line_spacing = 2  # points between lines
+        for text, font_name, font_size in text_lines:
+            total_text_height += font_size + line_spacing
+        total_text_height -= line_spacing  # Remove extra spacing after last line
+        line_height = text_font_size + line_spacing
+
+        # Center text vertically in the signature box
+        # Start from the top of the centered text block
+        box_center_y = placement.y + placement.height / 2
+        text_start_y = box_center_y + total_text_height / 2
+
+        text_x_offset = 0.01 * inch
+        text_x = placement.x + text_x_offset
         image_margin = 0.08 * inch
         image_area_width = placement.width * 0.35
         image_area_height = placement.height - (image_margin * 2)
@@ -586,16 +669,16 @@ class PdfSigner:
                     image_x = placement.x + image_margin
                     image_y = placement.y + placement.height - img_h - image_margin
                     c.drawImage(image_reader, image_x, image_y, width=img_w, height=img_h, mask="auto")
-                    text_x = image_x + img_w + 0.12 * inch
+                    text_x = image_x + img_w + text_x_offset
             except Exception:
-                text_x = placement.x + 0.08 * inch
+                text_x = placement.x + text_x_offset
 
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(text_x, text_y, "Digitally signed by:")
-        c.setFont("Helvetica", 8)
-        c.drawString(text_x, text_y - 14, signer_name)
-        c.drawString(text_x, text_y - 28, f"Reason: {signature_type}")
-        c.drawString(text_x, text_y - 42, f"Date: {CertificateManager.get_current_time_iso()}")
+        # Draw text lines with proper vertical centering
+        current_y = text_start_y
+        for text, font_name, font_size in text_lines:
+            c.setFont(font_name, font_size)
+            c.drawString(text_x, current_y, text)
+            current_y -= line_height
         c.save()
 
     @staticmethod
@@ -645,7 +728,7 @@ class PdfSigner:
             from classes.CertificateManager import CertificateManager
             success = CertificateManager.sign_pdf_with_certificate(
                 pdf_path,
-                certificate.thumbprint,
+                certificate.cert_path if certificate.cert_path else certificate.thumbprint,
                 temp_signed,
                 password=password,
                 signer_name=signer_name

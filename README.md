@@ -1,12 +1,13 @@
 # DigiSign - X.509 Certificate-Based PDF Signing
 
 ## Overview
-DigiSign now supports digital PDF signing using X.509 certificates from the Windows certificate store. This adds cryptographic authenticity and non-repudiation to your PDF documents.
+DigiSign now supports digital PDF signing using X.509 certificates from the Windows certificate store and local certificate files. This adds cryptographic authenticity and non-repudiation to your PDF documents on Windows and Linux.
 
 ## Features
 
 ### Certificate Store Integration
 - **Windows Certificate Lookup**: Automatically detects X.509 certificates in your Windows Personal certificate store
+- **Local Certificate File Support**: Load PKCS#12 `.pfx` / `.p12` files for signing on Linux and Windows
 - **Certificate Information Display**: Shows certificate details including:
   - Subject (certificate owner)
   - Issuer
@@ -26,11 +27,39 @@ DigiSign now supports digital PDF signing using X.509 certificates from the Wind
 pip install -r requirements.txt
 ```
 
-### 1.1 Install Using the Windows Installer Script
+### 1.1 Install on Windows
 If you are on Windows, you can run the included installer script to create a virtual environment, install dependencies, and add a desktop shortcut:
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\install.ps1
 ```
+
+### 1.2 Install on Ubuntu/Linux
+Run the shell installer script, or create a virtual environment manually:
+```bash
+bash install.sh
+```
+
+If you prefer manual setup:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 1.3 Desktop Launcher (Ubuntu)
+To create a desktop launcher for easy access:
+```bash
+# Copy the desktop file
+cp DigiSign.desktop ~/.local/share/applications/
+
+# Edit the Exec line in the copied file to point to your DigiSign directory
+# For example, if DigiSign is in ~/projects/DigiSign:
+sed -i 's|DIGISIGN_PATH|~/projects/DigiSign|' ~/.local/share/applications/DigiSign.desktop
+
+# Make sure the launcher script is executable
+chmod +x ~/projects/DigiSign/digisign-launcher.sh
+```
+The launcher will appear in your applications menu.
 
 ### 2. Optional: Install PyHanko (Recommended)
 For full PDF/A compliant digital signatures:
@@ -38,10 +67,18 @@ For full PDF/A compliant digital signatures:
 pip install pyhanko pyhanko-certvalidator
 ```
 
-### 3. Set Up Certificate Store
-Your X.509 certificates should be in the Windows Personal certificate store:
+### 3. Set Up Certificates
+DigiSign supports:
+- Windows certificate store certificates on Windows
+- Local certificate files on all systems (PKCS#12 `.pfx` / `.p12` files are recommended for signing)
+
+If you are on Windows, certificates can still be loaded from the Windows Personal certificate store:
 - Path: `Certlm.msc` (Local Machine) or `Certmgr.msc` (Current User)
 - Store: Personal/My
+
+If you are on Linux or want to use a local certificate file:
+- Load a `.pfx` or `.p12` file using the "Load certificate file" button
+- Enter the file password when prompted
 
 ## How Windows Certificate Store Works
 

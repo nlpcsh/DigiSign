@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=DigiSign PDF Signer
+Comment=Sign PDFs with X.509 certificates
+Exec=bash DIGISIGN_PATH/digisign-launcher.sh
+Icon=python
+Terminal=false
+Type=Application
+Categories=Office;Utility;
+Keywords=pdf;sign;certificate;digital;
+StartupNotify=true

@@ -81,6 +81,22 @@ class Preferences:
         cls.save(prefs)
 
     @classmethod
+    def get_selected_certificate_path(cls) -> Optional[str]:
+        """Get the last selected certificate file path."""
+        prefs = cls.load()
+        path = prefs.get("selected_certificate_path")
+        if path and os.path.isfile(path):
+            return path
+        return None
+
+    @classmethod
+    def set_selected_certificate_path(cls, path: Optional[str]) -> None:
+        """Save the selected certificate file path."""
+        prefs = cls.load()
+        prefs["selected_certificate_path"] = path
+        cls.save(prefs)
+
+    @classmethod
     def get_signature_declaration(cls) -> Optional[str]:
         """Get the saved signature declaration."""
         prefs = cls.load()
