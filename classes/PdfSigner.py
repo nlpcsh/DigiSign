@@ -358,15 +358,25 @@ class PdfSigner:
     def pdf_to_canvas_coords(self,x: float, y: float, page_size: Tuple[float, float]) -> Tuple[float, float]:
         page_w, page_h = page_size
         scale = min(CANVAS_WIDTH / page_w, CANVAS_HEIGHT / page_h)
-        canvas_x = x * scale
-        canvas_y = CANVAS_HEIGHT - (y * scale)
+        disp_w = int(page_w * scale)
+        disp_h = int(page_h * scale)
+        x_offset = (CANVAS_WIDTH - disp_w) / 2
+        y_offset = (CANVAS_HEIGHT - disp_h) / 2
+
+        canvas_x = x * scale + x_offset
+        canvas_y = CANVAS_HEIGHT - (y * scale) - y_offset
         return canvas_x, canvas_y
 
     def canvas_to_pdf_coords(self, x: float, y: float, page_size: Tuple[float, float]) -> Tuple[float, float]:
         page_w, page_h = page_size
         scale = min(CANVAS_WIDTH / page_w, CANVAS_HEIGHT / page_h)
-        pdf_x = x / scale
-        pdf_y = (CANVAS_HEIGHT - y) / scale
+        disp_w = int(page_w * scale)
+        disp_h = int(page_h * scale)
+        x_offset = (CANVAS_WIDTH - disp_w) / 2
+        y_offset = (CANVAS_HEIGHT - disp_h) / 2
+
+        pdf_x = (x - x_offset) / scale
+        pdf_y = (CANVAS_HEIGHT - y - y_offset) / scale
         return pdf_x, pdf_y
 
     def load_page(self, page_index: int) -> None:
@@ -564,13 +574,35 @@ class PdfSigner:
         signature_image_path: Optional[str] = None,
     ) -> None:
         c = canvas.Canvas(output_path, pagesize=(page_width, page_height))
-        c.setStrokeColorRGB(0, 0, 0)
+        c.setStrokeColorRGB(0.867, 0.894, 1.)
         c.setFillColorRGB(0, 0, 0)
         c.setLineWidth(1)
         c.rect(placement.x, placement.y, placement.width, placement.height)
 
-        text_x = placement.x + 0.08 * inch
-        text_y = placement.y + placement.height - 0.26 * inch
+        text_font_size = 8
+        # Calculate text positioning - center vertically in the signature box
+        text_lines = [
+            ("Digitally signed by:", "Helvetica-Bold", text_font_size),
+            (signer_name, "Helvetica", text_font_size),
+            (f"Reason: {signature_type}", "Helvetica", text_font_size),
+            (f"Date: {CertificateManager.get_current_time_iso()}", "Helvetica", text_font_size)
+        ]
+
+        # Calculate total text height
+        total_text_height = 0
+        line_spacing = 2  # points between lines
+        for text, font_name, font_size in text_lines:
+            total_text_height += font_size + line_spacing
+        total_text_height -= line_spacing  # Remove extra spacing after last line
+        line_height = text_font_size + line_spacing
+
+        # Center text vertically in the signature box
+        # Start from the top of the centered text block
+        box_center_y = placement.y + placement.height / 2
+        text_start_y = box_center_y + total_text_height / 2
+
+        text_x_offset = 0.01 * inch
+        text_x = placement.x + text_x_offset
         image_margin = 0.08 * inch
         image_area_width = placement.width * 0.35
         image_area_height = placement.height - (image_margin * 2)
@@ -586,16 +618,16 @@ class PdfSigner:
                     image_x = placement.x + image_margin
                     image_y = placement.y + placement.height - img_h - image_margin
                     c.drawImage(image_reader, image_x, image_y, width=img_w, height=img_h, mask="auto")
-                    text_x = image_x + img_w + 0.12 * inch
+                    text_x = image_x + img_w + text_x_offset
             except Exception:
-                text_x = placement.x + 0.08 * inch
+                text_x = placement.x + text_x_offset
 
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(text_x, text_y, "Digitally signed by:")
-        c.setFont("Helvetica", 8)
-        c.drawString(text_x, text_y - 14, signer_name)
-        c.drawString(text_x, text_y - 28, f"Reason: {signature_type}")
-        c.drawString(text_x, text_y - 42, f"Date: {CertificateManager.get_current_time_iso()}")
+        # Draw text lines with proper vertical centering
+        current_y = text_start_y
+        for text, font_name, font_size in text_lines:
+            c.setFont(font_name, font_size)
+            c.drawString(text_x, current_y, text)
+            current_y -= line_height
         c.save()
 
     @staticmethod
