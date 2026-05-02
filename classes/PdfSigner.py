@@ -626,9 +626,8 @@ class PdfSigner:
         c.drawString(text_x, text_y, "Digitally signed by:")
         c.setFont("Helvetica", 8)
         c.drawString(text_x, text_y - 14, signer_name)
-        c.drawString(text_x, text_y - 28, f"{signature_type}")
-        c.drawString(text_x, text_y - 42, "Date: ______________________")
-        c.drawString(text_x, text_y - 56, "Signature visualization")
+        c.drawString(text_x, text_y - 28, f"Reason: {signature_type}")
+        c.drawString(text_x, text_y - 42, f"Date: {CertificateManager.get_current_time_iso()}")
         c.save()
 
     @staticmethod

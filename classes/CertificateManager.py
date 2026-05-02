@@ -310,3 +310,9 @@ else {{
         except Exception as exc:
             print(f"Metadata signing error: {exc}")
             return False
+
+    @staticmethod
+    def get_current_time_iso() -> str:
+        """Get the current time in ISO format"""
+        from datetime import datetime
+        return datetime.now().replace(microsecond=0).isoformat()
