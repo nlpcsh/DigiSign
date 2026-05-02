@@ -45,13 +45,14 @@ class PdfSigner:
         self.cert_password_entry: Optional[tk.Entry] = None
         self.cert_password_label: Optional[tk.Label] = None
         self.signer_name_label: Optional[tk.Label] = None
+        self.signature_declaration_var: tk.StringVar = tk.StringVar(value="I'm the author")
+        self.signature_declaration_combo: Optional[ttk.Combobox] = None
 
         toolbar = tk.Frame(root)
         toolbar.pack(fill="x", padx=8, pady=8)
 
         tk.Button(toolbar, text="Open PDF", command=self.open_pdf).pack(side="left")
         tk.Button(toolbar, text="Refresh Certificates", command=self.load_certificates).pack(side="left", padx=(8, 0))
-        tk.Button(toolbar, text="Sign PDF", command=self.complete_signing).pack(side="right")
 
         self.page_frame = tk.Frame(root)
         self.page_frame.pack(fill="x", padx=8)
@@ -96,6 +97,18 @@ class PdfSigner:
         self.cert_password_label = tk.Label(sidebar, text="(Leave blank if no password)", font=("TkDefaultFont", 8), fg="#999")
         self.cert_password_label.pack(anchor="w", pady=(0, 12))
 
+        tk.Label(sidebar, text="Signature statement:").pack(anchor="w")
+        self.signature_declaration_combo = ttk.Combobox(
+            sidebar,
+            state="readonly",
+            width=25,
+            textvariable=self.signature_declaration_var,
+            values=["I'm the author", "I reviewed this document"]
+        )
+        self.signature_declaration_combo.pack(fill="x", pady=(0, 12))
+        self.signature_declaration_combo.bind("<<ComboboxSelected>>", self.on_signature_declaration_selected)
+        self.signature_declaration_combo.current(0)
+
         tk.Button(sidebar, text="Load signature image", command=self.load_signature_image).pack(fill="x")
         self.signature_image_label = tk.Label(sidebar, text="No signature image loaded", wraplength=160, justify="left")
         self.signature_image_label.pack(anchor="w", pady=(6, 12))
@@ -106,6 +119,8 @@ class PdfSigner:
 
         tk.Label(sidebar, text="Instructions:").pack(anchor="w")
         tk.Label(sidebar, text="1) Select a certificate\n2) Open a PDF\n3) Drag to draw signature box\n4) Load signature image (optional)\n5) Click Sign PDF", justify="left", fg="#333333").pack(anchor="w")
+
+        tk.Button(sidebar, text="Sign PDF", command=self.complete_signing, bg="white", fg="blue").pack(fill="x", pady=(12, 0))
 
         # Load certificates on startup
         self.load_certificates()
@@ -123,10 +138,10 @@ class PdfSigner:
             if self.certificate_combo:
                 self.certificate_combo['values'] = cert_names
 
-                if cert_names:
-                    self.certificate_combo.current(0)
-                    self.on_certificate_selected()
-                else:
+                # Apply certificate preferences after loading
+                self._apply_certificate_preferences()
+
+                if not cert_names:
                     self.certificate_status_label.config(
                         text="No certificates found in store",
                         fg="#d9534f"
@@ -149,7 +164,7 @@ class PdfSigner:
 
             # Update status label with certificate info
             status_text = f"Subject: {cert.friendly_name}\n"
-            status_text += f"Valid: {cert.valid_from}\nto {cert.valid_to}"
+            status_text += f"Valid to: {cert.valid_to}"
             self.certificate_status_label.config(text=status_text, fg="#5cb85c")
 
             # Extract and display signer name from certificate
@@ -202,6 +217,43 @@ class PdfSigner:
             # If we can't parse, assume it's not expired
             return False
 
+
+    def _apply_certificate_preferences(self) -> None:
+        """Apply saved certificate preferences to the current certificate list"""
+        # Load and select certificate by thumbprint (preferred) or friendly name
+        cert_thumbprint = Preferences.get_selected_certificate_thumbprint()
+        cert_friendly_name = Preferences.get_selected_certificate_friendly_name()
+
+        selected_index = -1
+
+        for idx, cert in enumerate(self.available_certificates):
+            # Try to match by thumbprint first
+            if cert_thumbprint and cert.thumbprint == cert_thumbprint:
+                selected_index = idx
+                break
+            # Fallback to friendly name
+            if cert_friendly_name and cert.friendly_name == cert_friendly_name:
+                selected_index = idx
+                break
+
+        # Select the found certificate, or default to first certificate if none found
+        if selected_index >= 0:
+            self.certificate_combo.current(selected_index)
+            self.on_certificate_selected()
+        elif self.available_certificates:
+            # No saved preference found, select first certificate as default
+            self.certificate_combo.current(0)
+            self.on_certificate_selected()
+        else:
+            # No certificates available
+            self.selected_certificate = None
+            self.certificate_status_label.config(
+                text="No certificates available",
+                fg="#666"
+            )
+            if self.signer_name_label:
+                self.signer_name_label.config(text="(From certificate)")
+
     def load_preferences(self) -> None:
         """Load and apply saved preferences (signature image and certificate)."""
         # Load signature image path
@@ -210,21 +262,18 @@ class PdfSigner:
             self.signature_image_path = sig_image_path
             self.update_signature_image_label()
 
-        # Load and select certificate by thumbprint (preferred) or friendly name
-        cert_thumbprint = Preferences.get_selected_certificate_thumbprint()
-        cert_friendly_name = Preferences.get_selected_certificate_friendly_name()
+        # Apply certificate preferences
+        self._apply_certificate_preferences()
 
-        for idx, cert in enumerate(self.available_certificates):
-            # Try to match by thumbprint first
-            if cert_thumbprint and cert.thumbprint == cert_thumbprint:
-                self.certificate_combo.current(idx)
-                self.on_certificate_selected()
-                return
-            # Fallback to friendly name
-            if cert_friendly_name and cert.friendly_name == cert_friendly_name:
-                self.certificate_combo.current(idx)
-                self.on_certificate_selected()
-                return
+        # Load saved signature declaration preference
+        declaration = Preferences.get_signature_declaration()
+        if declaration in ["I'm the author", "I reviewed this document"]:
+            self.signature_declaration_var.set(declaration)
+
+    def on_signature_declaration_selected(self, event: Optional[tk.Event] = None) -> None:
+        """Handle signature statement selection."""
+        declaration = self.signature_declaration_var.get()
+        Preferences.set_signature_declaration(declaration)
 
     def load_signature_image(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All files", "*.*")])
@@ -467,10 +516,13 @@ class PdfSigner:
         overlay_path = overlay_pdf.name
         overlay_pdf.close()
 
+        signature_declaration = self.signature_declaration_var.get()
+
         try:
             self.create_signature_overlay(
                 self.selection,
                 signer_name,
+                signature_declaration,
                 overlay_path,
                 page_w,
                 page_h,
@@ -505,6 +557,7 @@ class PdfSigner:
     def create_signature_overlay(
         placement: SignaturePlacement,
         signer_name: str,
+        signature_type: str,
         output_path: str,
         page_width: float,
         page_height: float,
@@ -541,8 +594,8 @@ class PdfSigner:
         c.drawString(text_x, text_y, "Digitally signed by:")
         c.setFont("Helvetica", 8)
         c.drawString(text_x, text_y - 14, signer_name)
-        c.drawString(text_x, text_y - 28, "Date: ______________________")
-        c.drawString(text_x, text_y - 42, "Signature visualization")
+        c.drawString(text_x, text_y - 28, f"Reason: {signature_type}")
+        c.drawString(text_x, text_y - 42, f"Date: {CertificateManager.get_current_time_iso()}")
         c.save()
 
     @staticmethod

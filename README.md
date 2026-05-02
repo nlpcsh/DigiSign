@@ -26,6 +26,12 @@ DigiSign now supports digital PDF signing using X.509 certificates from the Wind
 pip install -r requirements.txt
 ```
 
+### 1.1 Install Using the Windows Installer Script
+If you are on Windows, you can run the included installer script to create a virtual environment, install dependencies, and add a desktop shortcut:
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
 ### 2. Optional: Install PyHanko (Recommended)
 For full PDF/A compliant digital signatures:
 ```bash
