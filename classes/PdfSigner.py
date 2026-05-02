@@ -45,6 +45,8 @@ class PdfSigner:
         self.cert_password_entry: Optional[tk.Entry] = None
         self.cert_password_label: Optional[tk.Label] = None
         self.signer_name_label: Optional[tk.Label] = None
+        self.signature_declaration_var: tk.StringVar = tk.StringVar(value="I'm the author")
+        self.signature_declaration_combo: Optional[ttk.Combobox] = None
 
         toolbar = tk.Frame(root)
         toolbar.pack(fill="x", padx=8, pady=8)
@@ -95,6 +97,18 @@ class PdfSigner:
         self.cert_password_entry.pack(fill="x", pady=(0, 12))
         self.cert_password_label = tk.Label(sidebar, text="(Leave blank if no password)", font=("TkDefaultFont", 8), fg="#999")
         self.cert_password_label.pack(anchor="w", pady=(0, 12))
+
+        tk.Label(sidebar, text="Signature statement:").pack(anchor="w")
+        self.signature_declaration_combo = ttk.Combobox(
+            sidebar,
+            state="readonly",
+            width=25,
+            textvariable=self.signature_declaration_var,
+            values=["I'm the author", "I reviewed this document"]
+        )
+        self.signature_declaration_combo.pack(fill="x", pady=(0, 12))
+        self.signature_declaration_combo.bind("<<ComboboxSelected>>", self.on_signature_declaration_selected)
+        self.signature_declaration_combo.current(0)
 
         tk.Button(sidebar, text="Load signature image", command=self.load_signature_image).pack(fill="x")
         self.signature_image_label = tk.Label(sidebar, text="No signature image loaded", wraplength=160, justify="left")
@@ -282,6 +296,16 @@ class PdfSigner:
 
         # Apply certificate preferences
         self._apply_certificate_preferences()
+
+        # Load saved signature declaration preference
+        declaration = Preferences.get_signature_declaration()
+        if declaration in ["I'm the author", "I reviewed this document"]:
+            self.signature_declaration_var.set(declaration)
+
+    def on_signature_declaration_selected(self, event: Optional[tk.Event] = None) -> None:
+        """Handle signature statement selection."""
+        declaration = self.signature_declaration_var.get()
+        Preferences.set_signature_declaration(declaration)
 
     def load_signature_image(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All files", "*.*")])
@@ -524,10 +548,13 @@ class PdfSigner:
         overlay_path = overlay_pdf.name
         overlay_pdf.close()
 
+        signature_declaration = self.signature_declaration_var.get()
+
         try:
             self.create_signature_overlay(
                 self.selection,
                 signer_name,
+                signature_declaration,
                 overlay_path,
                 page_w,
                 page_h,
@@ -562,6 +589,7 @@ class PdfSigner:
     def create_signature_overlay(
         placement: SignaturePlacement,
         signer_name: str,
+        signature_type: str,
         output_path: str,
         page_width: float,
         page_height: float,
@@ -598,8 +626,9 @@ class PdfSigner:
         c.drawString(text_x, text_y, "Digitally signed by:")
         c.setFont("Helvetica", 8)
         c.drawString(text_x, text_y - 14, signer_name)
-        c.drawString(text_x, text_y - 28, "Date: ______________________")
-        c.drawString(text_x, text_y - 42, "Signature visualization")
+        c.drawString(text_x, text_y - 28, f"{signature_type}")
+        c.drawString(text_x, text_y - 42, "Date: ______________________")
+        c.drawString(text_x, text_y - 56, "Signature visualization")
         c.save()
 
     @staticmethod

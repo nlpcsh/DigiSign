@@ -79,3 +79,16 @@ class Preferences:
         prefs = cls.load()
         prefs["selected_certificate_friendly_name"] = friendly_name
         cls.save(prefs)
+
+    @classmethod
+    def get_signature_declaration(cls) -> Optional[str]:
+        """Get the saved signature declaration."""
+        prefs = cls.load()
+        return prefs.get("signature_declaration")
+
+    @classmethod
+    def set_signature_declaration(cls, declaration: Optional[str]) -> None:
+        """Save the signature declaration."""
+        prefs = cls.load()
+        prefs["signature_declaration"] = declaration
+        cls.save(prefs)
