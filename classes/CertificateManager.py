@@ -70,7 +70,7 @@ $result | ConvertTo-Json -Depth 2
                                 friendly_name=friendly_name
                             )
                             certificates.append(cert_info)
-                except (json.JSONDecodeError, ValueError):
+                except ValueError:
                     # Fall back to file-based loading if JSON parsing fails
                     pass
 
