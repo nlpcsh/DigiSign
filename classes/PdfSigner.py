@@ -3,7 +3,7 @@ import tempfile
 from typing import Optional, Tuple
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from PIL import Image, ImageTk
 import fitz
@@ -53,6 +53,7 @@ class PdfSigner:
 
         tk.Button(toolbar, text="Open PDF", command=self.open_pdf).pack(side="left")
         tk.Button(toolbar, text="Refresh Certificates", command=self.load_certificates).pack(side="left", padx=(8, 0))
+        tk.Button(toolbar, text="Load certificate file", command=self.load_certificate_file).pack(side="left", padx=(8, 0))
 
         self.page_frame = tk.Frame(root)
         self.page_frame.pack(fill="x", padx=8)
@@ -118,7 +119,7 @@ class PdfSigner:
         self.selection_label.pack(anchor="w", pady=(0, 12))
 
         tk.Label(sidebar, text="Instructions:").pack(anchor="w")
-        tk.Label(sidebar, text="1) Select a certificate\n2) Open a PDF\n3) Drag to draw signature box\n4) Load signature image (optional)\n5) Click Sign PDF", justify="left", fg="#333333").pack(anchor="w")
+        tk.Label(sidebar, text="1) Select a certificate or load a certificate file\n2) Open a PDF\n3) Drag to draw signature box\n4) Load signature image (optional)\n5) Click Sign PDF", justify="left", fg="#333333").pack(anchor="w")
 
         tk.Button(sidebar, text="Sign PDF", command=self.complete_signing, bg="white", fg="blue").pack(fill="x", pady=(12, 0))
 
@@ -128,7 +129,7 @@ class PdfSigner:
         self.load_preferences()
 
     def load_certificates(self) -> None:
-        """Load available certificates from Windows certificate store"""
+        """Load available certificates from the local certificate directory and Windows store."""
         try:
             all_certificates = CertificateManager.list_certificates()
             # Filter out expired certificates
@@ -143,7 +144,7 @@ class PdfSigner:
 
                 if not cert_names:
                     self.certificate_status_label.config(
-                        text="No certificates found in store",
+                        text="No certificates found",
                         fg="#d9534f"
                     )
         except Exception as exc:
@@ -151,6 +152,37 @@ class PdfSigner:
                 text=f"Error loading certificates:\n{str(exc)[:50]}",
                 fg="#d9534f"
             )
+
+    def load_certificate_file(self) -> None:
+        """Allow the user to select a local certificate file for signing."""
+        path = filedialog.askopenfilename(
+            title="Load certificate file",
+            filetypes=[
+                ("PKCS#12 files", "*.pfx;*.p12"),
+                ("Certificate files", "*.pem;*.crt;*.cer"),
+                ("All files", "*.*")
+            ]
+        )
+        if not path:
+            return
+
+        password = None
+        if path.lower().endswith(('.pfx', '.p12')):
+            password = simpledialog.askstring(
+                "Certificate Password",
+                "Enter the password for the certificate file (leave blank if none):",
+                show="*"
+            )
+
+        cert_info = CertificateManager.load_certificate_file(path, password=password)
+        if not cert_info:
+            messagebox.showerror("Load certificate", "Unable to load certificate file. Check the file and password.")
+            return
+
+        self.available_certificates.append(cert_info)
+        self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
+        self.certificate_combo.current(len(self.available_certificates) - 1)
+        self.on_certificate_selected()
 
     def on_certificate_selected(self, event: Optional[tk.Event] = None) -> None:
         """Handle certificate selection from dropdown"""
@@ -174,6 +206,7 @@ class PdfSigner:
             # Save preference
             Preferences.set_selected_certificate_thumbprint(cert.thumbprint)
             Preferences.set_selected_certificate_friendly_name(cert.friendly_name)
+            Preferences.set_selected_certificate_path(cert.cert_path)
         else:
             self.selected_certificate = None
             self.certificate_status_label.config(
@@ -185,6 +218,7 @@ class PdfSigner:
             # Clear preferences
             Preferences.set_selected_certificate_thumbprint(None)
             Preferences.set_selected_certificate_friendly_name(None)
+            Preferences.set_selected_certificate_path(None)
 
     def _extract_signer_name_from_cert(self, cert: Optional[CertificateInfo]) -> str:
         """Extract signer name from certificate subject"""
@@ -261,6 +295,15 @@ class PdfSigner:
         if sig_image_path and os.path.isfile(sig_image_path):
             self.signature_image_path = sig_image_path
             self.update_signature_image_label()
+
+        # Restore a saved certificate file path if needed
+        cert_file_path = Preferences.get_selected_certificate_path()
+        if cert_file_path and os.path.isfile(cert_file_path):
+            cert_info = CertificateManager.load_certificate_file(cert_file_path)
+            if cert_info and not any(c.thumbprint == cert_info.thumbprint for c in self.available_certificates):
+                self.available_certificates.append(cert_info)
+                if self.certificate_combo:
+                    self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
 
         # Apply certificate preferences
         self._apply_certificate_preferences()
@@ -677,7 +720,7 @@ class PdfSigner:
             from classes.CertificateManager import CertificateManager
             success = CertificateManager.sign_pdf_with_certificate(
                 pdf_path,
-                certificate.thumbprint,
+                certificate.cert_path if certificate.cert_path else certificate.thumbprint,
                 temp_signed,
                 password=password,
                 signer_name=signer_name
