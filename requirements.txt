@@ -1,6 +1,6 @@
 # Core dependencies
 pillow>=9.0.0
-fitz>=0.0.1.dev0
+PyMuPDF>=1.27.0  # PDF processing library (provides fitz module)
 PyPDF2>=3.0.0
 reportlab>=3.6.0
 cryptography>=38.0.0
