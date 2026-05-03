@@ -746,9 +746,9 @@ class PdfSigner:
         # Center text vertically in the signature box
         # Start from the top of the centered text block
         box_center_y = placement.y + placement.height / 2
-        text_start_y = box_center_y + total_text_height / 2
+        text_start_y = box_center_y + total_text_height / 2 - line_height / 2 - line_spacing / 2
 
-        text_x_offset = 0.01 * inch
+        text_x_offset = 0.1 * inch
         text_x = placement.x + text_x_offset
         image_margin = 0.08 * inch
         image_area_width = placement.width * 0.35
