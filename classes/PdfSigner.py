@@ -729,8 +729,8 @@ class PdfSigner:
         text_font_size = 6
         # Calculate text positioning - center vertically in the signature box
         text_lines = [
-            ("Digitally signed by:", "Helvetica-Bold", text_font_size),
-            (signer_name, "Helvetica", text_font_size),
+            ("Digitally signed by:", "Helvetica", text_font_size),
+            (signer_name, "Helvetica-Bold", text_font_size),
             (f"Reason: {signature_type}", "Helvetica", text_font_size),
             (f"Date: {CertificateManager.get_current_time_iso()}", "Helvetica", text_font_size)
         ]
