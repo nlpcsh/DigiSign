@@ -21,6 +21,7 @@ class CertificateInfo:
     valid_to: str
     friendly_name: str
     cert_path: Optional[str] = None  # Path to exported cert file
+    password: Optional[str] = None  # Password for PKCS#12 certificate if loaded
 
 
 class CertificateManager:
@@ -83,6 +84,9 @@ $result | ConvertTo-Json -Depth 2
             cert_paths = CertificateManager._get_certificate_files()
             for cert_path in cert_paths:
                 try:
+                    ext = os.path.splitext(cert_path)[1].lower()
+                    if ext in {'.pfx', '.p12'}:
+                        continue
                     cert_info = CertificateManager.load_certificate_file(cert_path)
                     if cert_info and not any(c.thumbprint == cert_info.thumbprint for c in certificates):
                         certificates.append(cert_info)
@@ -137,8 +141,6 @@ $result | ConvertTo-Json -Depth 2
 
         except Exception as exc:
             print(f"Failed to load certificate file {cert_path}: {exc}")
-            import traceback
-            traceback.print_exc()
             return None
 
     @staticmethod
@@ -168,7 +170,7 @@ $result | ConvertTo-Json -Depth 2
             pfx_password = None
             if password:
                 pfx_password = password.encode() if isinstance(password, str) else password
-            
+
             # load_key_and_certificates returns (private_key, certificate, additional_certs)
             key, cert, additional = load_key_and_certificates(
                 pfx_data,
@@ -200,8 +202,6 @@ $result | ConvertTo-Json -Depth 2
             )
         except Exception as exc:
             print(f"Failed to load PKCS#12 certificate {cert_path}: {exc}")
-            import traceback
-            traceback.print_exc()
             return None
 
     @staticmethod
@@ -267,12 +267,14 @@ else {{
                 ['powershell', '-NoProfile', '-Command', ps_command],
                 capture_output=True,
                 text=True,
-                timeout=15
+                timeout=25
             )
 
             if result.returncode == 0 and "SUCCESS" in result.stdout:
                 if os.path.exists(pfx_path) and os.path.getsize(pfx_path) > 0:
                     return pfx_path, password
+            else:
+                raise Exception(f"Certificate export failed: {result.stdout.strip()}")
 
             print(f"Export result: {result.stdout.strip()}")
             if result.stderr:

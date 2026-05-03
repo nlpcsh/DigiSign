@@ -1,4 +1,5 @@
 import os
+import platform
 import tempfile
 from typing import Optional, Tuple
 
@@ -42,18 +43,23 @@ class PdfSigner:
         self.available_certificates: list[CertificateInfo] = []
         self.certificate_combo: Optional[ttk.Combobox] = None
         self.certificate_status_label: Optional[tk.Label] = None
-        self.cert_password_entry: Optional[tk.Entry] = None
-        self.cert_password_label: Optional[tk.Label] = None
+        self.certificate_validity_label: Optional[tk.Label] = None
+        self.cert_password_checkbox: Optional[tk.Checkbutton] = None
+        self.cert_password_var: tk.BooleanVar = tk.BooleanVar(value=False)
+        self.selected_certificate_password: Optional[str] = None
         self.signer_name_label: Optional[tk.Label] = None
         self.signature_declaration_var: tk.StringVar = tk.StringVar(value="I'm the author")
         self.signature_declaration_combo: Optional[ttk.Combobox] = None
+        self.visual_only_var: tk.BooleanVar = tk.BooleanVar(value=False)
 
         toolbar = tk.Frame(root)
         toolbar.pack(fill="x", padx=8, pady=8)
 
         tk.Button(toolbar, text="Open PDF", command=self.open_pdf).pack(side="left")
-        tk.Button(toolbar, text="Refresh Certificates", command=self.load_certificates).pack(side="left", padx=(8, 0))
-        tk.Button(toolbar, text="Load certificate file", command=self.load_certificate_file).pack(side="left", padx=(8, 0))
+        if platform.system() != "Linux":
+            tk.Button(toolbar, text="Refresh Certificates", command=self.load_certificates).pack(side="left", padx=(8, 0))
+        if platform.system() != "Windows":
+            tk.Button(toolbar, text="Load certificate file", command=self.load_certificate_file).pack(side="left", padx=(8, 0))
 
         self.page_frame = tk.Frame(root)
         self.page_frame.pack(fill="x", padx=8)
@@ -79,24 +85,42 @@ class PdfSigner:
         sidebar.pack(side="right", fill="y")
 
         # Certificate selection section
-        tk.Label(sidebar, text="Digital Certificate:", font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(0, 6))
-        self.certificate_combo = ttk.Combobox(sidebar, state="readonly", width=25)
-        self.certificate_combo.pack(fill="x", pady=(0, 6))
-        self.certificate_combo.bind("<<ComboboxSelected>>", self.on_certificate_selected)
+        if platform.system() != "Linux":
+            tk.Label(sidebar, text="Digital Certificate:", font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(0, 6))
+            self.certificate_combo = ttk.Combobox(sidebar, state="readonly", width=25)
+            self.certificate_combo.pack(fill="x", pady=(0, 6))
+            self.certificate_combo.bind("<<ComboboxSelected>>", self._update_certificate_display)
 
-        self.certificate_status_label = tk.Label(sidebar, text="No certificate selected", wraplength=160, justify="left", fg="#666")
-        self.certificate_status_label.pack(anchor="w", pady=(0, 12))
+            self.certificate_status_label = tk.Label(sidebar, text="No certificate selected", wraplength=160, justify="left", fg="#666")
+            self.certificate_status_label.pack(anchor="w", pady=(0, 12))
 
         tk.Label(sidebar, text="Signer name:").pack(anchor="w")
         self.signer_name_label = tk.Label(sidebar, text="(From certificate)", wraplength=160, justify="left", fg="#666")
-        self.signer_name_label.pack(anchor="w", pady=(0, 12))
+        self.signer_name_label.pack(anchor="w", pady=(0, 2))
+        self.certificate_validity_label = tk.Label(sidebar, text="", wraplength=160, justify="left", fg="#666")
+        self.certificate_validity_label.pack(anchor="w", pady=(0, 12))
 
-        # Certificate password
-        tk.Label(sidebar, text="Certificate Password:").pack(anchor="w")
-        self.cert_password_entry = tk.Entry(sidebar, show="*")
-        self.cert_password_entry.pack(fill="x", pady=(0, 12))
-        self.cert_password_label = tk.Label(sidebar, text="(Leave blank if no password)", font=("TkDefaultFont", 8), fg="#999")
-        self.cert_password_label.pack(anchor="w", pady=(0, 12))
+        # Certificate password handling
+        self.cert_password_checkbox = tk.Checkbutton(
+            sidebar,
+            text="Certificate requires password",
+            variable=self.cert_password_var,
+            onvalue=True,
+            offvalue=False
+        )
+        self.cert_password_checkbox.pack(anchor="w", pady=(0, 12))
+        tk.Label(sidebar, text="Password is set outside this app on certificate load or sign use.", font=("TkDefaultFont", 8), fg="#999").pack(anchor="w", pady=(0, 12))
+
+        # Visual-only signing option
+        self.visual_only_checkbox = tk.Checkbutton(
+            sidebar,
+            text="Visual signature only\n(no digital certificate)",
+            variable=self.visual_only_var,
+            onvalue=True,
+            offvalue=False
+        )
+        self.visual_only_checkbox.pack(anchor="w", pady=(0, 12))
+        tk.Label(sidebar, text="Sign with image only, even if certificate is unavailable.", font=("TkDefaultFont", 8), fg="#999").pack(anchor="w", pady=(0, 12))
 
         tk.Label(sidebar, text="Signature statement:").pack(anchor="w")
         self.signature_declaration_combo = ttk.Combobox(
@@ -143,15 +167,17 @@ class PdfSigner:
                 self._apply_certificate_preferences()
 
                 if not cert_names:
-                    self.certificate_status_label.config(
-                        text="No certificates found",
-                        fg="#d9534f"
-                    )
+                    if self.certificate_status_label:
+                        self.certificate_status_label.config(
+                            text="No certificates found",
+                            fg="#d9534f"
+                        )
         except Exception as exc:
-            self.certificate_status_label.config(
-                text=f"Error loading certificates:\n{str(exc)[:50]}",
-                fg="#d9534f"
-            )
+            if self.certificate_status_label:
+                self.certificate_status_label.config(
+                    text=f"Error loading certificates:\n{str(exc)[:50]}",
+                    fg="#d9534f"
+                )
 
     def load_certificate_file(self) -> None:
         """Allow the user to select a local certificate file for signing."""
@@ -187,42 +213,66 @@ class PdfSigner:
             )
             return
 
+        cert_info.password = password
         self.available_certificates.append(cert_info)
-        self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
-        self.certificate_combo.current(len(self.available_certificates) - 1)
-        self.on_certificate_selected()
+        self.selected_certificate_password = password
+        self.cert_password_var.set(bool(password))
 
-    def on_certificate_selected(self, event: Optional[tk.Event] = None) -> None:
-        """Handle certificate selection from dropdown"""
-        if not self.certificate_combo:
-            return
+        if self.certificate_combo:
+            self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
+            self.certificate_combo.current(len(self.available_certificates) - 1)
+        self._update_certificate_display(cert_info)
 
-        index = self.certificate_combo.current()
-        if 0 <= index < len(self.available_certificates):
-            self.selected_certificate = self.available_certificates[index]
+    def _update_certificate_display(self, cert: Optional[CertificateInfo] = None) -> None:
+        """Update the certificate display labels based on selected certificate"""
+        if cert:
+            self.selected_certificate = cert
+        elif self.certificate_combo:
+            index = self.certificate_combo.current()
+            if 0 <= index < len(self.available_certificates):
+                self.selected_certificate = self.available_certificates[index]
+                cert = self.selected_certificate
+            else:
+                self.selected_certificate = None
+                cert = None
+        else:
             cert = self.selected_certificate
 
+        if cert:
             # Update status label with certificate info
             status_text = f"Subject: {cert.friendly_name}\n"
             status_text += f"Valid to: {cert.valid_to}"
-            self.certificate_status_label.config(text=status_text, fg="#5cb85c")
+            if self.certificate_status_label:
+                self.certificate_status_label.config(text=status_text, fg="#5cb85c")
+
+            # Update external-password checkbox based on whether this certificate has a stored PKCS#12 password
+            self.selected_certificate_password = cert.password
+            self.cert_password_var.set(bool(cert.password))
 
             # Extract and display signer name from certificate
             signer_name = self._extract_signer_name_from_cert(cert)
             if self.signer_name_label:
                 self.signer_name_label.config(text=signer_name if signer_name else "Unknown")
+            if self.certificate_validity_label:
+                valid_text = f"Valid to: {cert.valid_to}"
+                if self._is_certificate_expired(cert):
+                    self.certificate_validity_label.config(text=valid_text, fg="#d9534f")
+                else:
+                    self.certificate_validity_label.config(text=valid_text, fg="#5cb85c")
             # Save preference
             Preferences.set_selected_certificate_thumbprint(cert.thumbprint)
             Preferences.set_selected_certificate_friendly_name(cert.friendly_name)
             Preferences.set_selected_certificate_path(cert.cert_path)
         else:
-            self.selected_certificate = None
-            self.certificate_status_label.config(
-                text="No certificate selected",
-                fg="#666"
-            )
+            if self.certificate_status_label:
+                self.certificate_status_label.config(
+                    text="No certificate selected",
+                    fg="#666"
+                )
             if self.signer_name_label:
                 self.signer_name_label.config(text="(From certificate)")
+            if self.certificate_validity_label:
+                self.certificate_validity_label.config(text="", fg="#666")
             # Clear preferences
             Preferences.set_selected_certificate_thumbprint(None)
             Preferences.set_selected_certificate_friendly_name(None)
@@ -280,19 +330,24 @@ class PdfSigner:
 
         # Select the found certificate, or default to first certificate if none found
         if selected_index >= 0:
-            self.certificate_combo.current(selected_index)
-            self.on_certificate_selected()
+            self.selected_certificate = self.available_certificates[selected_index]
+            if self.certificate_combo:
+                self.certificate_combo.current(selected_index)
+            self._update_certificate_display(self.selected_certificate)
         elif self.available_certificates:
             # No saved preference found, select first certificate as default
-            self.certificate_combo.current(0)
-            self.on_certificate_selected()
+            self.selected_certificate = self.available_certificates[0]
+            if self.certificate_combo:
+                self.certificate_combo.current(0)
+            self._update_certificate_display(self.selected_certificate)
         else:
             # No certificates available
             self.selected_certificate = None
-            self.certificate_status_label.config(
-                text="No certificates available",
-                fg="#666"
-            )
+            if self.certificate_status_label:
+                self.certificate_status_label.config(
+                    text="No certificates available",
+                    fg="#666"
+                )
             if self.signer_name_label:
                 self.signer_name_label.config(text="(From certificate)")
 
@@ -308,10 +363,39 @@ class PdfSigner:
         cert_file_path = Preferences.get_selected_certificate_path()
         if cert_file_path and os.path.isfile(cert_file_path):
             cert_info = CertificateManager.load_certificate_file(cert_file_path)
+
+            if not cert_info and cert_file_path.lower().endswith(('.pfx', '.p12')):
+                while True:
+                    password = simpledialog.askstring(
+                        "Certificate Password",
+                        "Enter the password for the saved certificate file:",
+                        show="*"
+                    )
+                    if password is None:
+                        break
+
+                    cert_info = CertificateManager.load_certificate_file(cert_file_path, password=password)
+                    if cert_info:
+                        cert_info.password = password
+                        self.selected_certificate_password = password
+                        self.cert_password_var.set(True)
+                        break
+
+                    messagebox.showerror(
+                        "Certificate Password",
+                        "Invalid password for the saved certificate file. Please try again."
+                    )
+
             if cert_info and not any(c.thumbprint == cert_info.thumbprint for c in self.available_certificates):
                 self.available_certificates.append(cert_info)
                 if self.certificate_combo:
                     self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
+            elif not cert_info and cert_file_path.lower().endswith(('.pfx', '.p12')):
+                if self.certificate_status_label:
+                    self.certificate_status_label.config(
+                        text="Saved certificate file could not be loaded. Load again manually.",
+                        fg="#d9534f"
+                    )
 
         # Apply certificate preferences
         self._apply_certificate_preferences()
@@ -563,12 +647,14 @@ class PdfSigner:
         if not self.selection:
             messagebox.showwarning("Sign PDF", "Draw a signature box on the page first.")
             return
-        if not self.selected_certificate:
-            messagebox.showwarning("Sign PDF", "Please select a digital certificate first.")
+        if not self.selected_certificate and not self.visual_only_var.get():
+            messagebox.showwarning("Sign PDF", "Please select a digital certificate first or enable 'Visual signature only'.")
             return
 
-        signer_name = self._extract_signer_name_from_cert(self.selected_certificate)
-        cert_password = self.cert_password_entry.get() if self.cert_password_entry else ""
+        is_visual_only = self.visual_only_var.get()
+        signer_name = "Visual Signature" if is_visual_only else self._extract_signer_name_from_cert(self.selected_certificate)
+        cert_password = self.selected_certificate_password
+        certificate_to_use = None if is_visual_only else self.selected_certificate
 
         page = self.reader.pages[self.selection.page_number]
         page_w, page_h = self.pdf_page_size(page)
@@ -588,23 +674,39 @@ class PdfSigner:
                 page_w,
                 page_h,
                 signature_image_path=self.signature_image_path,
+                visual_only=is_visual_only
             )
             output_pdf = os.path.splitext(self.pdf_path)[0] + "_signed.pdf"
-            self.merge_overlay(
+            signing_succeeded = self.merge_overlay(
                 self.pdf_path,
                 overlay_path,
                 self.selection,
                 output_pdf,
-                certificate=self.selected_certificate,
+                certificate=certificate_to_use,
                 password=cert_password,
                 signer_name=signer_name
             )
-            messagebox.showinfo(
-                "Sign PDF",
-                f"PDF digitally signed and saved:\n{output_pdf}\n\n"
-                f"Certificate: {self.selected_certificate.friendly_name}\n"
-                f"Signer: {signer_name}"
-            )
+
+            # If visual_only is not checked and digital signing failed, don't proceed
+            if not self.visual_only_var.get() and not signing_succeeded:
+                if os.path.exists(output_pdf):
+                    os.remove(output_pdf)
+                messagebox.showerror("Sign PDF", "Digital signature failed. Please check your certificate or enable 'Visual signature only'.")
+                return
+
+            if is_visual_only:
+                messagebox.showinfo(
+                    "Sign PDF",
+                    f"PDF signed with visual signature and saved:\n{output_pdf}\n\n"
+                    f"Type: Visual Signature Only"
+                )
+            else:
+                messagebox.showinfo(
+                    "Sign PDF",
+                    f"PDF digitally signed and saved:\n{output_pdf}\n\n"
+                    f"Certificate: {self.selected_certificate.friendly_name}\n"
+                    f"Signer: {signer_name}"
+                )
             self.preview_pdf_file(output_pdf)
         except Exception as exc:
             messagebox.showerror("Sign PDF", f"Failed to sign PDF:\n{exc}")
@@ -623,14 +725,33 @@ class PdfSigner:
         page_width: float,
         page_height: float,
         signature_image_path: Optional[str] = None,
+        visual_only: bool = False,
     ) -> None:
         c = canvas.Canvas(output_path, pagesize=(page_width, page_height))
+
+        if visual_only:
+            if signature_image_path and os.path.isfile(signature_image_path):
+                try:
+                    image_reader = ImageReader(signature_image_path)
+                    img_w, img_h = image_reader.getSize()
+                    if img_w > 0 and img_h > 0:
+                        scale = min(placement.width / img_w, placement.height / img_h, 1.0)
+                        img_w = img_w * scale
+                        img_h = img_h * scale
+                        image_x = placement.x + (placement.width - img_w) / 2
+                        image_y = placement.y + (placement.height - img_h) / 2
+                        c.drawImage(image_reader, image_x, image_y, width=img_w, height=img_h, mask="auto")
+                except Exception:
+                    pass
+            c.save()
+            return
+
         c.setStrokeColorRGB(0.867, 0.894, 1.)
         c.setFillColorRGB(0, 0, 0)
         c.setLineWidth(1)
         c.rect(placement.x, placement.y, placement.width, placement.height)
 
-        text_font_size = 8
+        text_font_size = 6
         # Calculate text positioning - center vertically in the signature box
         text_lines = [
             ("Digitally signed by:", "Helvetica-Bold", text_font_size),
@@ -690,8 +811,11 @@ class PdfSigner:
         certificate: Optional[CertificateInfo] = None,
         password: Optional[str] = None,
         signer_name: Optional[str] = None
-    ) -> None:
-        """Merge overlay with PDF and add digital signature"""
+    ) -> bool:
+        """Merge overlay with PDF and add digital signature
+
+        Returns True if digital signing succeeded (or was not attempted), False if it failed
+        """
         reader = PdfReader(pdf_path)
         writer = PdfWriter()
         overlay_reader = PdfReader(overlay_path)
@@ -708,7 +832,10 @@ class PdfSigner:
 
         # Add digital signature if certificate is provided
         if certificate:
-            PdfSigner._add_digital_signature(output_pdf, certificate, placement, password, signer_name)
+            return PdfSigner._add_digital_signature(output_pdf, certificate, placement, password, signer_name)
+
+        # No certificate provided, so visual-only signing is successful
+        return True
 
     @staticmethod
     def _add_digital_signature(
@@ -717,9 +844,11 @@ class PdfSigner:
         placement: SignaturePlacement,
         password: Optional[str] = None,
         signer_name: Optional[str] = None
-    ) -> None:
+    ) -> bool:
         """
         Add digital signature to PDF using X.509 certificate from Windows store
+
+        Returns True if signing succeeded, False otherwise
         """
         try:
             temp_signed = pdf_path + ".temp"
@@ -737,24 +866,10 @@ class PdfSigner:
             if success and os.path.exists(temp_signed):
                 os.replace(temp_signed, pdf_path)
                 print("✓ Digital signature added successfully")
-                return
+                return True
 
-            # Fallback: add signature metadata if real signing is not available
-            if os.path.exists(temp_signed):
-                os.remove(temp_signed)
-            temp_meta = pdf_path + ".meta"
-            metadata_success = CertificateManager.sign_pdf_with_metadata(
-                pdf_path,
-                temp_meta,
-                certificate,
-                signer_name=signer_name
-            )
-            if metadata_success and os.path.exists(temp_meta):
-                os.replace(temp_meta, pdf_path)
-                print("✓ Metadata signature applied as fallback")
-            elif os.path.exists(temp_meta):
-                os.remove(temp_meta)
+            return False
 
-        except Exception as exc:
-            print(f"Warning: Digital signing not available: {exc}")
-            # This is not fatal - the PDF still has the visual signature
+        except Exception as e:
+            print(f"✗ Digital signature error: {e}")
+            return False
