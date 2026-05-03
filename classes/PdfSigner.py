@@ -44,8 +44,6 @@ class PdfSigner:
         self.certificate_combo: Optional[ttk.Combobox] = None
         self.certificate_status_label: Optional[tk.Label] = None
         self.certificate_validity_label: Optional[tk.Label] = None
-        self.cert_password_checkbox: Optional[tk.Checkbutton] = None
-        self.cert_password_var: tk.BooleanVar = tk.BooleanVar(value=False)
         self.selected_certificate_password: Optional[str] = None
         self.signer_name_label: Optional[tk.Label] = None
         self.signature_declaration_var: tk.StringVar = tk.StringVar(value="I'm the author")
@@ -101,14 +99,6 @@ class PdfSigner:
         self.certificate_validity_label.pack(anchor="w", pady=(0, 12))
 
         # Certificate password handling
-        self.cert_password_checkbox = tk.Checkbutton(
-            sidebar,
-            text="Certificate requires password",
-            variable=self.cert_password_var,
-            onvalue=True,
-            offvalue=False
-        )
-        self.cert_password_checkbox.pack(anchor="w", pady=(0, 12))
         tk.Label(sidebar, text="Password is set outside this app on certificate load or sign use.", font=("TkDefaultFont", 8), fg="#999").pack(anchor="w", pady=(0, 12))
 
         # Visual-only signing option
@@ -216,7 +206,6 @@ class PdfSigner:
         cert_info.password = password
         self.available_certificates.append(cert_info)
         self.selected_certificate_password = password
-        self.cert_password_var.set(bool(password))
 
         if self.certificate_combo:
             self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
@@ -247,7 +236,6 @@ class PdfSigner:
 
             # Update external-password checkbox based on whether this certificate has a stored PKCS#12 password
             self.selected_certificate_password = cert.password
-            self.cert_password_var.set(bool(cert.password))
 
             # Extract and display signer name from certificate
             signer_name = self._extract_signer_name_from_cert(cert)
@@ -378,7 +366,6 @@ class PdfSigner:
                     if cert_info:
                         cert_info.password = password
                         self.selected_certificate_password = password
-                        self.cert_password_var.set(True)
                         break
 
                     messagebox.showerror(
