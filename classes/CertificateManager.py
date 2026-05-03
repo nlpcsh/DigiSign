@@ -170,7 +170,7 @@ $result | ConvertTo-Json -Depth 2
             pfx_password = None
             if password:
                 pfx_password = password.encode() if isinstance(password, str) else password
-            
+
             # load_key_and_certificates returns (private_key, certificate, additional_certs)
             key, cert, additional = load_key_and_certificates(
                 pfx_data,
@@ -267,12 +267,14 @@ else {{
                 ['powershell', '-NoProfile', '-Command', ps_command],
                 capture_output=True,
                 text=True,
-                timeout=15
+                timeout=25
             )
 
             if result.returncode == 0 and "SUCCESS" in result.stdout:
                 if os.path.exists(pfx_path) and os.path.getsize(pfx_path) > 0:
                     return pfx_path, password
+            else:
+                raise Exception(f"Certificate export failed: {result.stdout.strip()}")
 
             print(f"Export result: {result.stdout.strip()}")
             if result.stderr:
