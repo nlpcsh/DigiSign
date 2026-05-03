@@ -701,7 +701,7 @@ class PdfSigner:
         c.setLineWidth(1)
         c.rect(placement.x, placement.y, placement.width, placement.height)
 
-        text_font_size = 8
+        text_font_size = 6
         # Calculate text positioning - center vertically in the signature box
         text_lines = [
             ("Digitally signed by:", "Helvetica-Bold", text_font_size),
