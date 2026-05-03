@@ -57,7 +57,8 @@ class PdfSigner:
         tk.Button(toolbar, text="Open PDF", command=self.open_pdf).pack(side="left")
         if platform.system() != "Linux":
             tk.Button(toolbar, text="Refresh Certificates", command=self.load_certificates).pack(side="left", padx=(8, 0))
-        tk.Button(toolbar, text="Load certificate file", command=self.load_certificate_file).pack(side="left", padx=(8, 0))
+        if platform.system() != "Windows":
+            tk.Button(toolbar, text="Load certificate file", command=self.load_certificate_file).pack(side="left", padx=(8, 0))
 
         self.page_frame = tk.Frame(root)
         self.page_frame.pack(fill="x", padx=8)
