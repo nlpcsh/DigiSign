@@ -1,10 +1,9 @@
 import os
-import platform
 import tempfile
 from typing import Optional, Tuple
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, simpledialog
 
 from PIL import Image, ImageTk
 import fitz
@@ -13,134 +12,123 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 from reportlab.lib.utils import ImageReader
 
-from classes.DataClasses import SignaturePlacement
-from classes.CertificateManager import CertificateManager, CertificateInfo
+from classes.DataClasses import SignaturePlacement, CertificateInfo
+from classes.CertificateManager import CertificateManager
 from classes.Preferences import Preferences
+from classes.UIBuilder import UIBuilder
 
-CANVAS_WIDTH = 680
-CANVAS_HEIGHT = 900
 DEFAULT_WIDTH = 3 * inch
 DEFAULT_HEIGHT = 1 * inch
 
 class PdfSigner:
+    """
+    Main PDF signer application.
+
+    Manages PDF signing with digital certificates and visual signatures.
+    Handles UI interactions, certificate management, and PDF operations.
+    """
+
     def __init__(self, root: tk.Tk):
         self.root = root
         root.title("DigiSign PDF Signer")
 
+        # Initialize state
+        self._initialize_state()
+
+        # Build UI
+        self._build_ui()
+
+        # Setup event handlers
+        self._setup_event_handlers()
+
+        # Load initial data
+        self.load_certificates()
+        self.load_preferences()
+
+    def _initialize_state(self) -> None:
+        """Initialize application state variables."""
+        # Canvas dimensions from preferences
+        self.canvas_width = Preferences.get_canvas_width()
+        self.canvas_height = Preferences.get_canvas_height()
+
+        # PDF state
         self.pdf_path: Optional[str] = None
         self.reader: Optional[PdfReader] = None
         self.page_size: Tuple[float, float] = (0.0, 0.0)
         self.selection: Optional[SignaturePlacement] = None
         self.drag_start: Optional[Tuple[float, float]] = None
         self.selection_rect_id: Optional[int] = None
-        self.signature_image_path: Optional[str] = None
-        self.signature_image_label: Optional[tk.Label] = None
         self.fitz_doc: Optional[fitz.Document] = None
         self.page_image_tk: Optional[ImageTk.PhotoImage] = None
 
-        # Certificate support
+        # Signature state
+        self.signature_image_path: Optional[str] = None
+
+        # Certificate state
         self.selected_certificate: Optional[CertificateInfo] = None
         self.available_certificates: list[CertificateInfo] = []
-        self.certificate_combo: Optional[ttk.Combobox] = None
-        self.certificate_status_label: Optional[tk.Label] = None
-        self.certificate_validity_label: Optional[tk.Label] = None
         self.selected_certificate_password: Optional[str] = None
-        self.signer_name_label: Optional[tk.Label] = None
-        self.signature_declaration_var: tk.StringVar = tk.StringVar(value="I'm the author")
-        self.signature_declaration_combo: Optional[ttk.Combobox] = None
-        self.visual_only_var: tk.BooleanVar = tk.BooleanVar(value=False)
 
-        toolbar = tk.Frame(root)
-        toolbar.pack(fill="x", padx=8, pady=8)
-
-        tk.Button(toolbar, text="Open PDF", command=self.open_pdf).pack(side="left")
-        if platform.system() != "Linux":
-            tk.Button(toolbar, text="Refresh Certificates", command=self.load_certificates).pack(side="left", padx=(8, 0))
-        if platform.system() != "Windows":
-            tk.Button(toolbar, text="Load certificate file", command=self.load_certificate_file).pack(side="left", padx=(8, 0))
-
-        self.page_frame = tk.Frame(root)
-        self.page_frame.pack(fill="x", padx=8)
-
-        tk.Label(self.page_frame, text="Page:").pack(side="left")
+        # Page navigation variables
         self.page_var = tk.IntVar(value=1)
-        self.page_spin = tk.Spinbox(self.page_frame, from_=1, to=1, width=5, textvariable=self.page_var, command=self.on_page_change)
-        self.page_spin.pack(side="left", padx=(0, 12))
 
-        self.info_label = tk.Label(self.page_frame, text="No file loaded")
-        self.info_label.pack(side="left")
+    def _build_ui(self) -> None:
+        """Build the user interface."""
+        # Toolbar
+        toolbar = UIBuilder.build_toolbar(self.root)
+        self._toolbar_buttons = UIBuilder.build_buttons(toolbar, {
+            "open_pdf": self.open_pdf,
+            "load_certificates": self.load_certificates,
+            "load_certificate_file": self.load_certificate_file,
+        })
 
-        content = tk.Frame(root)
+        # Page navigation
+        self.page_frame, self.page_spin, self.page_var, self.info_label = UIBuilder.build_page_frame(self.root)
+        self.page_spin.config(command=self.on_page_change)
+
+        # Main content area
+        content = tk.Frame(self.root)
         content.pack(fill="both", expand=True, padx=8, pady=8)
 
-        self.canvas = tk.Canvas(content, width=CANVAS_WIDTH, height=CANVAS_HEIGHT, bg="#f0f0f0")
-        self.canvas.pack(side="left", fill="both", expand=True)
+        # Canvas with dimensions from instance variables
+        self.canvas = UIBuilder.build_canvas(content, self.canvas_width, self.canvas_height)
+
+        # Sidebar
+        _, sidebar_components = UIBuilder.build_sidebar(content, {
+            "load_signature_image": self.load_signature_image,
+            "complete_signing": self.complete_signing,
+        })
+        self._setup_sidebar_components(sidebar_components)
+
+    def _setup_sidebar_components(self, components: dict) -> None:
+        """Extract and store sidebar components."""
+        # Certificate UI components
+        self.certificate_combo = components.get("cert_combo")
+        self.certificate_status_label = components.get("cert_status_label")
+        self.signer_name_label = components.get("signer_name_label")
+        self.certificate_validity_label = components.get("cert_validity_label")
+
+        # Signature UI components
+        self.visual_only_var = components.get("visual_only_var", tk.BooleanVar(value=False))
+        self.signature_image_label = components.get("signature_image_label")
+        self.selection_label = components.get("selection_label")
+
+        # Signature declaration
+        self.signature_declaration_var = components.get("signature_declaration_var", tk.StringVar(value="I'm the author"))
+        self.signature_declaration_combo = components.get("signature_declaration_combo")
+
+    def _setup_event_handlers(self) -> None:
+        """Bind event handlers to UI components."""
+        if self.certificate_combo:
+            self.certificate_combo.bind("<<ComboboxSelected>>", self._update_certificate_display)
+
+        if self.signature_declaration_combo:
+            self.signature_declaration_combo.bind("<<ComboboxSelected>>", self.on_signature_declaration_selected)
+
+        # Canvas events
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
-
-        sidebar = tk.Frame(content, padx=12)
-        sidebar.pack(side="right", fill="y")
-
-        # Certificate selection section
-        if platform.system() != "Linux":
-            tk.Label(sidebar, text="Digital Certificate:", font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(0, 6))
-            self.certificate_combo = ttk.Combobox(sidebar, state="readonly", width=25)
-            self.certificate_combo.pack(fill="x", pady=(0, 6))
-            self.certificate_combo.bind("<<ComboboxSelected>>", self._update_certificate_display)
-
-            self.certificate_status_label = tk.Label(sidebar, text="No certificate selected", wraplength=160, justify="left", fg="#666")
-            self.certificate_status_label.pack(anchor="w", pady=(0, 12))
-
-        tk.Label(sidebar, text="Signer name:").pack(anchor="w")
-        self.signer_name_label = tk.Label(sidebar, text="(From certificate)", wraplength=160, justify="left", fg="#666")
-        self.signer_name_label.pack(anchor="w", pady=(0, 2))
-        self.certificate_validity_label = tk.Label(sidebar, text="", wraplength=160, justify="left", fg="#666")
-        self.certificate_validity_label.pack(anchor="w", pady=(0, 12))
-
-        # Certificate password handling
-        tk.Label(sidebar, text="Password is set outside this app on certificate load or sign use.", font=("TkDefaultFont", 8), fg="#999").pack(anchor="w", pady=(0, 12))
-
-        # Visual-only signing option
-        self.visual_only_checkbox = tk.Checkbutton(
-            sidebar,
-            text="Visual signature only\n(no digital certificate)",
-            variable=self.visual_only_var,
-            onvalue=True,
-            offvalue=False
-        )
-        self.visual_only_checkbox.pack(anchor="w", pady=(0, 12))
-        tk.Label(sidebar, text="Sign with image only, even if certificate is unavailable.", font=("TkDefaultFont", 8), fg="#999").pack(anchor="w", pady=(0, 12))
-
-        tk.Label(sidebar, text="Signature statement:").pack(anchor="w")
-        self.signature_declaration_combo = ttk.Combobox(
-            sidebar,
-            state="readonly",
-            width=25,
-            textvariable=self.signature_declaration_var,
-            values=["I'm the author", "I reviewed this document"]
-        )
-        self.signature_declaration_combo.pack(fill="x", pady=(0, 12))
-        self.signature_declaration_combo.bind("<<ComboboxSelected>>", self.on_signature_declaration_selected)
-        self.signature_declaration_combo.current(0)
-
-        tk.Button(sidebar, text="Load signature image", command=self.load_signature_image).pack(fill="x")
-        self.signature_image_label = tk.Label(sidebar, text="No signature image loaded", wraplength=160, justify="left")
-        self.signature_image_label.pack(anchor="w", pady=(6, 12))
-
-        tk.Label(sidebar, text="Selection (PDF points):").pack(anchor="w")
-        self.selection_label = tk.Label(sidebar, text="x=0.0 y=0.0 w=0.0 h=0.0", justify="left")
-        self.selection_label.pack(anchor="w", pady=(0, 12))
-
-        tk.Label(sidebar, text="Instructions:").pack(anchor="w")
-        tk.Label(sidebar, text="1) Select a certificate or load a certificate file\n2) Open a PDF\n3) Drag to draw signature box\n4) Load signature image (optional)\n5) Click Sign PDF", justify="left", fg="#333333").pack(anchor="w")
-
-        tk.Button(sidebar, text="Sign PDF", command=self.complete_signing, bg="white", fg="blue").pack(fill="x", pady=(12, 0))
-
-        # Load certificates on startup
-        self.load_certificates()
-        # Load saved preferences
-        self.load_preferences()
 
     def load_certificates(self) -> None:
         """Load available certificates from the local certificate directory and Windows store."""
@@ -479,26 +467,26 @@ class PdfSigner:
 
     def pdf_to_canvas_coords(self,x: float, y: float, page_size: Tuple[float, float]) -> Tuple[float, float]:
         page_w, page_h = page_size
-        scale = min(CANVAS_WIDTH / page_w, CANVAS_HEIGHT / page_h)
+        scale = min(self.canvas_width / page_w, self.canvas_height / page_h)
         disp_w = int(page_w * scale)
         disp_h = int(page_h * scale)
-        x_offset = (CANVAS_WIDTH - disp_w) / 2
-        y_offset = (CANVAS_HEIGHT - disp_h) / 2
+        x_offset = (self.canvas_width - disp_w) / 2
+        y_offset = (self.canvas_height - disp_h) / 2
 
         canvas_x = x * scale + x_offset
-        canvas_y = CANVAS_HEIGHT - (y * scale) - y_offset
+        canvas_y = self.canvas_height - (y * scale) - y_offset
         return canvas_x, canvas_y
 
     def canvas_to_pdf_coords(self, x: float, y: float, page_size: Tuple[float, float]) -> Tuple[float, float]:
         page_w, page_h = page_size
-        scale = min(CANVAS_WIDTH / page_w, CANVAS_HEIGHT / page_h)
+        scale = min(self.canvas_width / page_w, self.canvas_height / page_h)
         disp_w = int(page_w * scale)
         disp_h = int(page_h * scale)
-        x_offset = (CANVAS_WIDTH - disp_w) / 2
-        y_offset = (CANVAS_HEIGHT - disp_h) / 2
+        x_offset = (self.canvas_width - disp_w) / 2
+        y_offset = (self.canvas_height - disp_h) / 2
 
         pdf_x = (x - x_offset) / scale
-        pdf_y = (CANVAS_HEIGHT - y - y_offset) / scale
+        pdf_y = (self.canvas_height - y - y_offset) / scale
         return pdf_x, pdf_y
 
     def load_page(self, page_index: int) -> None:
@@ -543,15 +531,15 @@ class PdfSigner:
     def redraw_canvas(self) -> None:
         self.canvas.delete("all")
         if not self.pdf_path or not self.reader:
-            self.canvas.create_text(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, text="Open a PDF to start", fill="#666")
+            self.canvas.create_text(self.canvas_width / 2, self.canvas_height / 2, text="Open a PDF to start", fill="#666")
             return
 
         page_w, page_h = self.page_size
-        scale = min(CANVAS_WIDTH / page_w, CANVAS_HEIGHT / page_h)
+        scale = min(self.canvas_width / page_w, self.canvas_height / page_h)
         disp_w = int(page_w * scale)
         disp_h = int(page_h * scale)
-        x0 = (CANVAS_WIDTH - disp_w) / 2
-        y0 = (CANVAS_HEIGHT - disp_h) / 2
+        x0 = (self.canvas_width - disp_w) / 2
+        y0 = (self.canvas_height - disp_h) / 2
         x1 = x0 + disp_w
         y1 = y0 + disp_h
 

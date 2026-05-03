@@ -108,3 +108,29 @@ class Preferences:
         prefs = cls.load()
         prefs["signature_declaration"] = declaration
         cls.save(prefs)
+
+    @classmethod
+    def get_canvas_width(cls) -> int:
+        """Get the saved canvas width, or default to 680."""
+        prefs = cls.load()
+        return prefs.get("canvas_width", 680)
+
+    @classmethod
+    def set_canvas_width(cls, width: int) -> None:
+        """Save the canvas width."""
+        prefs = cls.load()
+        prefs["canvas_width"] = width
+        cls.save(prefs)
+
+    @classmethod
+    def get_canvas_height(cls) -> int:
+        """Get the saved canvas height, or default to 900."""
+        prefs = cls.load()
+        return prefs.get("canvas_height", 900)
+
+    @classmethod
+    def set_canvas_height(cls, height: int) -> None:
+        """Save the canvas height."""
+        prefs = cls.load()
+        prefs["canvas_height"] = height
+        cls.save(prefs)
