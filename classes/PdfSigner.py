@@ -1,4 +1,5 @@
 import os
+import platform
 import tempfile
 from typing import Optional, Tuple
 
@@ -52,7 +53,8 @@ class PdfSigner:
         toolbar.pack(fill="x", padx=8, pady=8)
 
         tk.Button(toolbar, text="Open PDF", command=self.open_pdf).pack(side="left")
-        tk.Button(toolbar, text="Refresh Certificates", command=self.load_certificates).pack(side="left", padx=(8, 0))
+        if platform.system() != "Linux":
+            tk.Button(toolbar, text="Refresh Certificates", command=self.load_certificates).pack(side="left", padx=(8, 0))
         tk.Button(toolbar, text="Load certificate file", command=self.load_certificate_file).pack(side="left", padx=(8, 0))
 
         self.page_frame = tk.Frame(root)
@@ -79,13 +81,14 @@ class PdfSigner:
         sidebar.pack(side="right", fill="y")
 
         # Certificate selection section
-        tk.Label(sidebar, text="Digital Certificate:", font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(0, 6))
-        self.certificate_combo = ttk.Combobox(sidebar, state="readonly", width=25)
-        self.certificate_combo.pack(fill="x", pady=(0, 6))
-        self.certificate_combo.bind("<<ComboboxSelected>>", self.on_certificate_selected)
+        if platform.system() != "Linux":
+            tk.Label(sidebar, text="Digital Certificate:", font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(0, 6))
+            self.certificate_combo = ttk.Combobox(sidebar, state="readonly", width=25)
+            self.certificate_combo.pack(fill="x", pady=(0, 6))
+            self.certificate_combo.bind("<<ComboboxSelected>>", self._update_certificate_display)
 
-        self.certificate_status_label = tk.Label(sidebar, text="No certificate selected", wraplength=160, justify="left", fg="#666")
-        self.certificate_status_label.pack(anchor="w", pady=(0, 12))
+            self.certificate_status_label = tk.Label(sidebar, text="No certificate selected", wraplength=160, justify="left", fg="#666")
+            self.certificate_status_label.pack(anchor="w", pady=(0, 12))
 
         tk.Label(sidebar, text="Signer name:").pack(anchor="w")
         self.signer_name_label = tk.Label(sidebar, text="(From certificate)", wraplength=160, justify="left", fg="#666")
@@ -143,15 +146,17 @@ class PdfSigner:
                 self._apply_certificate_preferences()
 
                 if not cert_names:
-                    self.certificate_status_label.config(
-                        text="No certificates found",
-                        fg="#d9534f"
-                    )
+                    if self.certificate_status_label:
+                        self.certificate_status_label.config(
+                            text="No certificates found",
+                            fg="#d9534f"
+                        )
         except Exception as exc:
-            self.certificate_status_label.config(
-                text=f"Error loading certificates:\n{str(exc)[:50]}",
-                fg="#d9534f"
-            )
+            if self.certificate_status_label:
+                self.certificate_status_label.config(
+                    text=f"Error loading certificates:\n{str(exc)[:50]}",
+                    fg="#d9534f"
+                )
 
     def load_certificate_file(self) -> None:
         """Allow the user to select a local certificate file for signing."""
@@ -188,24 +193,33 @@ class PdfSigner:
             return
 
         self.available_certificates.append(cert_info)
-        self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
-        self.certificate_combo.current(len(self.available_certificates) - 1)
-        self.on_certificate_selected()
+        if self.certificate_combo:
+            self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
+            self.certificate_combo.current(len(self.available_certificates) - 1)
+        self.selected_certificate = cert_info
+        self._update_certificate_display()
 
-    def on_certificate_selected(self, event: Optional[tk.Event] = None) -> None:
-        """Handle certificate selection from dropdown"""
-        if not self.certificate_combo:
-            return
-
-        index = self.certificate_combo.current()
-        if 0 <= index < len(self.available_certificates):
-            self.selected_certificate = self.available_certificates[index]
+    def _update_certificate_display(self, cert: Optional[CertificateInfo] = None) -> None:
+        """Update the certificate display labels based on selected certificate"""
+        if cert:
+            self.selected_certificate = cert
+        elif self.certificate_combo:
+            index = self.certificate_combo.current()
+            if 0 <= index < len(self.available_certificates):
+                self.selected_certificate = self.available_certificates[index]
+                cert = self.selected_certificate
+            else:
+                self.selected_certificate = None
+                cert = None
+        else:
             cert = self.selected_certificate
 
+        if cert:
             # Update status label with certificate info
             status_text = f"Subject: {cert.friendly_name}\n"
             status_text += f"Valid to: {cert.valid_to}"
-            self.certificate_status_label.config(text=status_text, fg="#5cb85c")
+            if self.certificate_status_label:
+                self.certificate_status_label.config(text=status_text, fg="#5cb85c")
 
             # Extract and display signer name from certificate
             signer_name = self._extract_signer_name_from_cert(cert)
@@ -216,11 +230,11 @@ class PdfSigner:
             Preferences.set_selected_certificate_friendly_name(cert.friendly_name)
             Preferences.set_selected_certificate_path(cert.cert_path)
         else:
-            self.selected_certificate = None
-            self.certificate_status_label.config(
-                text="No certificate selected",
-                fg="#666"
-            )
+            if self.certificate_status_label:
+                self.certificate_status_label.config(
+                    text="No certificate selected",
+                    fg="#666"
+                )
             if self.signer_name_label:
                 self.signer_name_label.config(text="(From certificate)")
             # Clear preferences
@@ -280,19 +294,22 @@ class PdfSigner:
 
         # Select the found certificate, or default to first certificate if none found
         if selected_index >= 0:
-            self.certificate_combo.current(selected_index)
-            self.on_certificate_selected()
+            if self.certificate_combo:
+                self.certificate_combo.current(selected_index)
+            self._update_certificate_display()
         elif self.available_certificates:
             # No saved preference found, select first certificate as default
-            self.certificate_combo.current(0)
-            self.on_certificate_selected()
+            if self.certificate_combo:
+                self.certificate_combo.current(0)
+            self._update_certificate_display()
         else:
             # No certificates available
             self.selected_certificate = None
-            self.certificate_status_label.config(
-                text="No certificates available",
-                fg="#666"
-            )
+            if self.certificate_status_label:
+                self.certificate_status_label.config(
+                    text="No certificates available",
+                    fg="#666"
+                )
             if self.signer_name_label:
                 self.signer_name_label.config(text="(From certificate)")
 
