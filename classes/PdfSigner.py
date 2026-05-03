@@ -50,6 +50,7 @@ class PdfSigner:
         self.signer_name_label: Optional[tk.Label] = None
         self.signature_declaration_var: tk.StringVar = tk.StringVar(value="I'm the author")
         self.signature_declaration_combo: Optional[ttk.Combobox] = None
+        self.visual_only_var: tk.BooleanVar = tk.BooleanVar(value=False)
 
         toolbar = tk.Frame(root)
         toolbar.pack(fill="x", padx=8, pady=8)
@@ -109,6 +110,17 @@ class PdfSigner:
         )
         self.cert_password_checkbox.pack(anchor="w", pady=(0, 12))
         tk.Label(sidebar, text="Password is set outside this app on certificate load or sign use.", font=("TkDefaultFont", 8), fg="#999").pack(anchor="w", pady=(0, 12))
+
+        # Visual-only signing option
+        self.visual_only_checkbox = tk.Checkbutton(
+            sidebar,
+            text="Visual signature only\n(no digital certificate)",
+            variable=self.visual_only_var,
+            onvalue=True,
+            offvalue=False
+        )
+        self.visual_only_checkbox.pack(anchor="w", pady=(0, 12))
+        tk.Label(sidebar, text="Sign with image only, even if certificate is unavailable.", font=("TkDefaultFont", 8), fg="#999").pack(anchor="w", pady=(0, 12))
 
         tk.Label(sidebar, text="Signature statement:").pack(anchor="w")
         self.signature_declaration_combo = ttk.Combobox(
@@ -635,12 +647,14 @@ class PdfSigner:
         if not self.selection:
             messagebox.showwarning("Sign PDF", "Draw a signature box on the page first.")
             return
-        if not self.selected_certificate:
-            messagebox.showwarning("Sign PDF", "Please select a digital certificate first.")
+        if not self.selected_certificate and not self.visual_only_var.get():
+            messagebox.showwarning("Sign PDF", "Please select a digital certificate first or enable 'Visual signature only'.")
             return
 
-        signer_name = self._extract_signer_name_from_cert(self.selected_certificate)
+        is_visual_only = self.visual_only_var.get()
+        signer_name = "Visual Signature" if is_visual_only else self._extract_signer_name_from_cert(self.selected_certificate)
         cert_password = self.selected_certificate_password
+        certificate_to_use = None if is_visual_only else self.selected_certificate
 
         page = self.reader.pages[self.selection.page_number]
         page_w, page_h = self.pdf_page_size(page)
@@ -660,23 +674,39 @@ class PdfSigner:
                 page_w,
                 page_h,
                 signature_image_path=self.signature_image_path,
+                visual_only=is_visual_only
             )
             output_pdf = os.path.splitext(self.pdf_path)[0] + "_signed.pdf"
-            self.merge_overlay(
+            signing_succeeded = self.merge_overlay(
                 self.pdf_path,
                 overlay_path,
                 self.selection,
                 output_pdf,
-                certificate=self.selected_certificate,
+                certificate=certificate_to_use,
                 password=cert_password,
                 signer_name=signer_name
             )
-            messagebox.showinfo(
-                "Sign PDF",
-                f"PDF digitally signed and saved:\n{output_pdf}\n\n"
-                f"Certificate: {self.selected_certificate.friendly_name}\n"
-                f"Signer: {signer_name}"
-            )
+
+            # If visual_only is not checked and digital signing failed, don't proceed
+            if not self.visual_only_var.get() and not signing_succeeded:
+                if os.path.exists(output_pdf):
+                    os.remove(output_pdf)
+                messagebox.showerror("Sign PDF", "Digital signature failed. Please check your certificate or enable 'Visual signature only'.")
+                return
+
+            if is_visual_only:
+                messagebox.showinfo(
+                    "Sign PDF",
+                    f"PDF signed with visual signature and saved:\n{output_pdf}\n\n"
+                    f"Type: Visual Signature Only"
+                )
+            else:
+                messagebox.showinfo(
+                    "Sign PDF",
+                    f"PDF digitally signed and saved:\n{output_pdf}\n\n"
+                    f"Certificate: {self.selected_certificate.friendly_name}\n"
+                    f"Signer: {signer_name}"
+                )
             self.preview_pdf_file(output_pdf)
         except Exception as exc:
             messagebox.showerror("Sign PDF", f"Failed to sign PDF:\n{exc}")
@@ -695,8 +725,27 @@ class PdfSigner:
         page_width: float,
         page_height: float,
         signature_image_path: Optional[str] = None,
+        visual_only: bool = False,
     ) -> None:
         c = canvas.Canvas(output_path, pagesize=(page_width, page_height))
+
+        if visual_only:
+            if signature_image_path and os.path.isfile(signature_image_path):
+                try:
+                    image_reader = ImageReader(signature_image_path)
+                    img_w, img_h = image_reader.getSize()
+                    if img_w > 0 and img_h > 0:
+                        scale = min(placement.width / img_w, placement.height / img_h, 1.0)
+                        img_w = img_w * scale
+                        img_h = img_h * scale
+                        image_x = placement.x + (placement.width - img_w) / 2
+                        image_y = placement.y + (placement.height - img_h) / 2
+                        c.drawImage(image_reader, image_x, image_y, width=img_w, height=img_h, mask="auto")
+                except Exception:
+                    pass
+            c.save()
+            return
+
         c.setStrokeColorRGB(0.867, 0.894, 1.)
         c.setFillColorRGB(0, 0, 0)
         c.setLineWidth(1)
@@ -762,8 +811,11 @@ class PdfSigner:
         certificate: Optional[CertificateInfo] = None,
         password: Optional[str] = None,
         signer_name: Optional[str] = None
-    ) -> None:
-        """Merge overlay with PDF and add digital signature"""
+    ) -> bool:
+        """Merge overlay with PDF and add digital signature
+
+        Returns True if digital signing succeeded (or was not attempted), False if it failed
+        """
         reader = PdfReader(pdf_path)
         writer = PdfWriter()
         overlay_reader = PdfReader(overlay_path)
@@ -780,7 +832,10 @@ class PdfSigner:
 
         # Add digital signature if certificate is provided
         if certificate:
-            PdfSigner._add_digital_signature(output_pdf, certificate, placement, password, signer_name)
+            return PdfSigner._add_digital_signature(output_pdf, certificate, placement, password, signer_name)
+
+        # No certificate provided, so visual-only signing is successful
+        return True
 
     @staticmethod
     def _add_digital_signature(
@@ -789,9 +844,11 @@ class PdfSigner:
         placement: SignaturePlacement,
         password: Optional[str] = None,
         signer_name: Optional[str] = None
-    ) -> None:
+    ) -> bool:
         """
         Add digital signature to PDF using X.509 certificate from Windows store
+
+        Returns True if signing succeeded, False otherwise
         """
         try:
             temp_signed = pdf_path + ".temp"
@@ -809,24 +866,10 @@ class PdfSigner:
             if success and os.path.exists(temp_signed):
                 os.replace(temp_signed, pdf_path)
                 print("✓ Digital signature added successfully")
-                return
+                return True
 
-            # Fallback: add signature metadata if real signing is not available
-            if os.path.exists(temp_signed):
-                os.remove(temp_signed)
-            temp_meta = pdf_path + ".meta"
-            metadata_success = CertificateManager.sign_pdf_with_metadata(
-                pdf_path,
-                temp_meta,
-                certificate,
-                signer_name=signer_name
-            )
-            if metadata_success and os.path.exists(temp_meta):
-                os.replace(temp_meta, pdf_path)
-                print("✓ Metadata signature applied as fallback")
-            elif os.path.exists(temp_meta):
-                os.remove(temp_meta)
+            return False
 
-        except Exception as exc:
-            print(f"Warning: Digital signing not available: {exc}")
-            # This is not fatal - the PDF still has the visual signature
+        except Exception as e:
+            print(f"✗ Digital signature error: {e}")
+            return False
