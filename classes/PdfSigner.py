@@ -43,8 +43,10 @@ class PdfSigner:
         self.available_certificates: list[CertificateInfo] = []
         self.certificate_combo: Optional[ttk.Combobox] = None
         self.certificate_status_label: Optional[tk.Label] = None
-        self.cert_password_entry: Optional[tk.Entry] = None
-        self.cert_password_label: Optional[tk.Label] = None
+        self.certificate_validity_label: Optional[tk.Label] = None
+        self.cert_password_checkbox: Optional[tk.Checkbutton] = None
+        self.cert_password_var: tk.BooleanVar = tk.BooleanVar(value=False)
+        self.selected_certificate_password: Optional[str] = None
         self.signer_name_label: Optional[tk.Label] = None
         self.signature_declaration_var: tk.StringVar = tk.StringVar(value="I'm the author")
         self.signature_declaration_combo: Optional[ttk.Combobox] = None
@@ -92,14 +94,20 @@ class PdfSigner:
 
         tk.Label(sidebar, text="Signer name:").pack(anchor="w")
         self.signer_name_label = tk.Label(sidebar, text="(From certificate)", wraplength=160, justify="left", fg="#666")
-        self.signer_name_label.pack(anchor="w", pady=(0, 12))
+        self.signer_name_label.pack(anchor="w", pady=(0, 2))
+        self.certificate_validity_label = tk.Label(sidebar, text="", wraplength=160, justify="left", fg="#666")
+        self.certificate_validity_label.pack(anchor="w", pady=(0, 12))
 
-        # Certificate password
-        tk.Label(sidebar, text="Certificate Password:").pack(anchor="w")
-        self.cert_password_entry = tk.Entry(sidebar, show="*")
-        self.cert_password_entry.pack(fill="x", pady=(0, 12))
-        self.cert_password_label = tk.Label(sidebar, text="(Leave blank if no password)", font=("TkDefaultFont", 8), fg="#999")
-        self.cert_password_label.pack(anchor="w", pady=(0, 12))
+        # Certificate password handling
+        self.cert_password_checkbox = tk.Checkbutton(
+            sidebar,
+            text="Certificate requires password",
+            variable=self.cert_password_var,
+            onvalue=True,
+            offvalue=False
+        )
+        self.cert_password_checkbox.pack(anchor="w", pady=(0, 12))
+        tk.Label(sidebar, text="Password is set outside this app on certificate load or sign use.", font=("TkDefaultFont", 8), fg="#999").pack(anchor="w", pady=(0, 12))
 
         tk.Label(sidebar, text="Signature statement:").pack(anchor="w")
         self.signature_declaration_combo = ttk.Combobox(
@@ -192,12 +200,15 @@ class PdfSigner:
             )
             return
 
+        cert_info.password = password
         self.available_certificates.append(cert_info)
+        self.selected_certificate_password = password
+        self.cert_password_var.set(bool(password))
+
         if self.certificate_combo:
             self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
             self.certificate_combo.current(len(self.available_certificates) - 1)
-        self.selected_certificate = cert_info
-        self._update_certificate_display()
+        self._update_certificate_display(cert_info)
 
     def _update_certificate_display(self, cert: Optional[CertificateInfo] = None) -> None:
         """Update the certificate display labels based on selected certificate"""
@@ -221,10 +232,20 @@ class PdfSigner:
             if self.certificate_status_label:
                 self.certificate_status_label.config(text=status_text, fg="#5cb85c")
 
+            # Update external-password checkbox based on whether this certificate has a stored PKCS#12 password
+            self.selected_certificate_password = cert.password
+            self.cert_password_var.set(bool(cert.password))
+
             # Extract and display signer name from certificate
             signer_name = self._extract_signer_name_from_cert(cert)
             if self.signer_name_label:
                 self.signer_name_label.config(text=signer_name if signer_name else "Unknown")
+            if self.certificate_validity_label:
+                valid_text = f"Valid to: {cert.valid_to}"
+                if self._is_certificate_expired(cert):
+                    self.certificate_validity_label.config(text=valid_text, fg="#d9534f")
+                else:
+                    self.certificate_validity_label.config(text=valid_text, fg="#5cb85c")
             # Save preference
             Preferences.set_selected_certificate_thumbprint(cert.thumbprint)
             Preferences.set_selected_certificate_friendly_name(cert.friendly_name)
@@ -237,6 +258,8 @@ class PdfSigner:
                 )
             if self.signer_name_label:
                 self.signer_name_label.config(text="(From certificate)")
+            if self.certificate_validity_label:
+                self.certificate_validity_label.config(text="", fg="#666")
             # Clear preferences
             Preferences.set_selected_certificate_thumbprint(None)
             Preferences.set_selected_certificate_friendly_name(None)
@@ -294,14 +317,16 @@ class PdfSigner:
 
         # Select the found certificate, or default to first certificate if none found
         if selected_index >= 0:
+            self.selected_certificate = self.available_certificates[selected_index]
             if self.certificate_combo:
                 self.certificate_combo.current(selected_index)
-            self._update_certificate_display()
+            self._update_certificate_display(self.selected_certificate)
         elif self.available_certificates:
             # No saved preference found, select first certificate as default
+            self.selected_certificate = self.available_certificates[0]
             if self.certificate_combo:
                 self.certificate_combo.current(0)
-            self._update_certificate_display()
+            self._update_certificate_display(self.selected_certificate)
         else:
             # No certificates available
             self.selected_certificate = None
@@ -325,10 +350,39 @@ class PdfSigner:
         cert_file_path = Preferences.get_selected_certificate_path()
         if cert_file_path and os.path.isfile(cert_file_path):
             cert_info = CertificateManager.load_certificate_file(cert_file_path)
+
+            if not cert_info and cert_file_path.lower().endswith(('.pfx', '.p12')):
+                while True:
+                    password = simpledialog.askstring(
+                        "Certificate Password",
+                        "Enter the password for the saved certificate file:",
+                        show="*"
+                    )
+                    if password is None:
+                        break
+
+                    cert_info = CertificateManager.load_certificate_file(cert_file_path, password=password)
+                    if cert_info:
+                        cert_info.password = password
+                        self.selected_certificate_password = password
+                        self.cert_password_var.set(True)
+                        break
+
+                    messagebox.showerror(
+                        "Certificate Password",
+                        "Invalid password for the saved certificate file. Please try again."
+                    )
+
             if cert_info and not any(c.thumbprint == cert_info.thumbprint for c in self.available_certificates):
                 self.available_certificates.append(cert_info)
                 if self.certificate_combo:
                     self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
+            elif not cert_info and cert_file_path.lower().endswith(('.pfx', '.p12')):
+                if self.certificate_status_label:
+                    self.certificate_status_label.config(
+                        text="Saved certificate file could not be loaded. Load again manually.",
+                        fg="#d9534f"
+                    )
 
         # Apply certificate preferences
         self._apply_certificate_preferences()
@@ -585,7 +639,7 @@ class PdfSigner:
             return
 
         signer_name = self._extract_signer_name_from_cert(self.selected_certificate)
-        cert_password = self.cert_password_entry.get() if self.cert_password_entry else ""
+        cert_password = self.selected_certificate_password
 
         page = self.reader.pages[self.selection.page_number]
         page_w, page_h = self.pdf_page_size(page)

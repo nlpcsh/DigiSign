@@ -21,6 +21,7 @@ class CertificateInfo:
     valid_to: str
     friendly_name: str
     cert_path: Optional[str] = None  # Path to exported cert file
+    password: Optional[str] = None  # Password for PKCS#12 certificate if loaded
 
 
 class CertificateManager:
@@ -83,6 +84,9 @@ $result | ConvertTo-Json -Depth 2
             cert_paths = CertificateManager._get_certificate_files()
             for cert_path in cert_paths:
                 try:
+                    ext = os.path.splitext(cert_path)[1].lower()
+                    if ext in {'.pfx', '.p12'}:
+                        continue
                     cert_info = CertificateManager.load_certificate_file(cert_path)
                     if cert_info and not any(c.thumbprint == cert_info.thumbprint for c in certificates):
                         certificates.append(cert_info)
@@ -137,8 +141,6 @@ $result | ConvertTo-Json -Depth 2
 
         except Exception as exc:
             print(f"Failed to load certificate file {cert_path}: {exc}")
-            import traceback
-            traceback.print_exc()
             return None
 
     @staticmethod
@@ -200,8 +202,6 @@ $result | ConvertTo-Json -Depth 2
             )
         except Exception as exc:
             print(f"Failed to load PKCS#12 certificate {cert_path}: {exc}")
-            import traceback
-            traceback.print_exc()
             return None
 
     @staticmethod
