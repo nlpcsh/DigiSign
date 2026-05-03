@@ -13,7 +13,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 from reportlab.lib.utils import ImageReader
 
-from classes.SignaturePlacement import SignaturePlacement
+from classes.DataClasses import SignaturePlacement
 from classes.CertificateManager import CertificateManager, CertificateInfo
 from classes.Preferences import Preferences
 
