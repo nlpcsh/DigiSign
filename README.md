@@ -1,7 +1,69 @@
 # DigiSign - X.509 Certificate-Based PDF Signing
 
 ## Overview
-DigiSign now supports digital PDF signing using X.509 certificates from the Windows certificate store and local certificate files. This adds cryptographic authenticity and non-repudiation to your PDF documents on Windows and Linux.
+DigiSign is a cross-platform PDF signing application that supports digital signatures using X.509 certificates from the Windows certificate store and local certificate files. It adds cryptographic authenticity and non-repudiation to PDF documents.
+
+### Key Capabilities
+- **Digital Signatures**: Cryptographic signing with X.509 certificates
+- **Visual Signatures**: Optional image-only signatures without certificate
+- **Cross-Platform**: Works on Windows and Linux
+- **Certificate Management**: Supports Windows store and local certificate files
+- **Signature Placement**: Precise visual signature positioning on any page
+
+## Architecture
+
+DigiSign follows a clean, decoupled architecture:
+
+### Core Modules
+
+#### `PdfSigner` (`classes/PdfSigner.py`)
+Main application controller managing:
+- **State Management**: PDF, certificates, selections, preferences
+- **Certificate Operations**: Loading, validating, and applying certificates
+- **PDF Operations**: Opening, rendering, signing documents
+- **Event Handling**: Canvas interactions and UI events
+
+#### `UIBuilder` (`classes/UIBuilder.py`)
+Separates UI construction from business logic:
+- **Toolbar Building**: PDF and certificate controls
+- **Canvas Management**: PDF preview rendering
+- **Sidebar Components**: Certificate selection, signing options
+- **Event Binding**: Connects UI to application logic
+
+#### `CertificateManager` (`classes/CertificateManager.py`)
+Handles certificate operations:
+- **Certificate Discovery**: Windows store and file system
+- **Certificate Validation**: Expiration checking, format validation
+- **Digital Signing**: PDF signing with pyHanko
+- **Certificate Export**: Temporary export for signing operations
+
+#### `Preferences` (`classes/Preferences.py`)
+Persistent user preferences:
+- Selected certificate
+- Signature image path
+- Signature declaration text
+
+#### `DataClasses` (`classes/DataClasses.py`)
+Core data structures:
+- `SignaturePlacement`: Position and dimensions for signatures
+- `CertificateInfo`: Certificate metadata and properties
+
+### Design Principles
+
+1. **Separation of Concerns**
+   - UI building (UIBuilder) separate from business logic (PdfSigner)
+   - Certificate operations isolated in CertificateManager
+   - Persistent state in Preferences
+
+2. **Decoupled Components**
+   - UIBuilder doesn't know about certificate management
+   - PdfSigner orchestrates components without direct UI creation
+   - Easy to test and modify individual components
+
+3. **Clean Dependencies**
+   - External libraries (tkinter, PyPDF2, pyHanko) used through clear interfaces
+   - Certificate operations abstracted for multiple implementations
+   - UI framework independent of core logic
 
 ## Features
 
@@ -15,10 +77,10 @@ DigiSign now supports digital PDF signing using X.509 certificates from the Wind
   - Thumbprint (SHA-1 hash)
   - Common Name (CN)
 
-### Digital Signing
-- **Visual & Digital Signature**: Creates both a visual signature box and a digital signature
-- **Certificate-Based**: Uses your X.509 certificate for cryptographic signing
-- **Metadata Embedding**: Embeds certificate information in the signed PDF
+### Signing Modes
+- **Digital Signing**: Full cryptographic signature with certificate details
+- **Visual-Only Signing**: Image-only signatures without requiring a certificate
+- **Metadata Embedding**: Certificate information embedded in signed PDFs
 
 ## Installation
 

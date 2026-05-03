@@ -5,24 +5,12 @@ import json
 import tempfile
 from pathlib import Path
 from typing import List, Tuple, Optional
-from dataclasses import dataclass
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 
-
-@dataclass
-class CertificateInfo:
-    """Information about an X.509 certificate"""
-    subject: str
-    issuer: str
-    thumbprint: str
-    valid_to: str
-    friendly_name: str
-    cert_path: Optional[str] = None  # Path to exported cert file
-    password: Optional[str] = None  # Password for PKCS#12 certificate if loaded
-
+from classes.DataClasses import CertificateInfo
 
 class CertificateManager:
     """Manages X.509 certificates from Windows certificate store and local certificate files"""
