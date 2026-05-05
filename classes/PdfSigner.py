@@ -1,6 +1,6 @@
 import os
 import tempfile
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
@@ -66,7 +66,7 @@ class PdfSigner:
 
         # Certificate state
         self.selected_certificate: Optional[CertificateInfo] = None
-        self.available_certificates: list[CertificateInfo] = []
+        self.available_certificates: List[CertificateInfo] = []
         self.selected_certificate_password: Optional[str] = None
 
         # Page navigation variables

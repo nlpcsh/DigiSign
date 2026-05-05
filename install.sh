@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 set -e
 
+# Requires Python 3.8 or later
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+PYTHON_CMD=python3
+if ! command -v "$PYTHON_CMD" >/dev/null 2>&1; then
+  PYTHON_CMD=python
+fi
 
 if [ -d "$REPO_ROOT/.venv" ]; then
   echo "Virtual environment already exists at $REPO_ROOT/.venv"
 else
-  python3 -m venv "$REPO_ROOT/.venv"
+  "$PYTHON_CMD" -m venv "$REPO_ROOT/.venv"
 fi
 
 # shellcheck source=/dev/null
