@@ -119,7 +119,13 @@ function Create-DesktopShortcut {
     $shortcut.WorkingDirectory = $RepoRoot
     $shortcut.WindowStyle = 1
     $shortcut.Description = 'Launch DigiSign PDF Signer'
-    $shortcut.IconLocation = "$PythonExe,0"
+    # Use icon.png from the project root if it exists
+    $iconPath = Join-Path $RepoRoot 'icon.png'
+    if (Test-Path $iconPath) {
+        $shortcut.IconLocation = $iconPath
+    } else {
+        $shortcut.IconLocation = "$PythonExe,0"
+    }
     $shortcut.Save()
 
     Write-Host "Desktop shortcut created at: $shortcutPath" -ForegroundColor Green
