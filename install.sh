@@ -40,8 +40,8 @@ cat > "$RUN_SCRIPT" <<EOF
 #!/bin/bash
 
 # Activate virtual environment if it exists
-if [ -d "$APP_DIR/venv" ]; then
-    source "$APP_DIR/venv/bin/activate"
+if [ -d "$APP_DIR/.venv" ]; then
+    source "$APP_DIR/.venv/bin/activate"
 fi
 
 python3 "$PYTHON_FILE"
