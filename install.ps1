@@ -114,12 +114,27 @@ function Create-DesktopShortcut {
     $wshShell = New-Object -ComObject WScript.Shell
     $shortcut = $wshShell.CreateShortcut($shortcutPath)
 
-    $shortcut.TargetPath = $PythonExe
+    # Use pythonw.exe instead of python.exe
+    $pythonwExe = $PythonExe -replace 'python\.exe$', 'pythonw.exe'
+
+    if (-not (Test-Path $pythonwExe)) {
+        $pythonwExe = $PythonExe
+    }
+
+    $shortcut.TargetPath = $pythonwExe
     $shortcut.Arguments = '"' + (Join-Path $RepoRoot 'main.py') + '"'
     $shortcut.WorkingDirectory = $RepoRoot
-    $shortcut.WindowStyle = 1
+    $shortcut.WindowStyle = 7
     $shortcut.Description = 'Launch DigiSign PDF Signer'
-    $shortcut.IconLocation = "$PythonExe,0"
+
+    # Custom icon
+    $iconPath = Join-Path $RepoRoot 'icon.ico'
+    if (Test-Path $iconPath) {
+        $shortcut.IconLocation = $iconPath
+    } else {
+        $shortcut.IconLocation = "$pythonwExe,0"
+    }
+
     $shortcut.Save()
 
     Write-Host "Desktop shortcut created at: $shortcutPath" -ForegroundColor Green
