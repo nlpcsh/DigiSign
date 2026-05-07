@@ -5,6 +5,7 @@ Separates UI construction logic from the main application logic.
 import platform
 import tkinter as tk
 from tkinter import ttk
+from typing import Any, Dict, Optional, Tuple
 
 
 class UIBuilder:
@@ -43,7 +44,7 @@ class UIBuilder:
         return buttons
 
     @staticmethod
-    def build_page_frame(root: tk.Tk) -> tuple[tk.Frame, tk.Label, tk.Spinbox, tk.IntVar, tk.Label]:
+    def build_page_frame(root: tk.Tk) -> Tuple[tk.Frame, tk.Label, tk.Spinbox, tk.IntVar, tk.Label]:
         """Create the page navigation frame."""
         page_frame = tk.Frame(root)
         page_frame.pack(fill="x", padx=8)
@@ -72,7 +73,7 @@ class UIBuilder:
         return canvas
 
     @staticmethod
-    def build_sidebar(content: tk.Frame, callbacks: dict = None) -> tuple[tk.Frame, dict]:
+    def build_sidebar(content: tk.Frame, callbacks: Optional[Dict[str, Any]] = None) -> Tuple[tk.Frame, Dict[str, Any]]:
         """Create the right sidebar with certificate and signing options."""
         if callbacks is None:
             callbacks = {}
