@@ -19,6 +19,9 @@ param (
 $ErrorActionPreference = 'Stop'
 
 function Get-RepositoryRoot {
+    if ([string]::IsNullOrEmpty($MyInvocation.MyCommand.Path)) {
+        return (Get-Location).Path
+    }
     return Split-Path -Parent $MyInvocation.MyCommand.Path
 }
 
@@ -27,16 +30,45 @@ function Find-PythonExecutable {
         [string]$VirtualEnvPath
     )
 
-    if (-not $SkipVenv -and Test-Path "$VirtualEnvPath\Scripts\python.exe") {
-        return "$VirtualEnvPath\Scripts\python.exe"
+    $script:PythonArgs = @()
+
+    if (-not $SkipVenv) {
+        if (Test-Path "$VirtualEnvPath\Scripts\python.exe") {
+            return "$VirtualEnvPath\Scripts\python.exe"
+        }
     }
 
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if ($python) {
-        return $python.Path
+    $candidates = @('python', 'python3', 'py')
+    foreach ($candidate in $candidates) {
+        $command = Get-Command $candidate -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -ne $command) {
+            $pythonPath = $command.Path
+            if ([string]::IsNullOrEmpty($pythonPath)) {
+                $pythonPath = $command.Definition
+            }
+            if ([string]::IsNullOrEmpty($pythonPath)) {
+                $pythonPath = $command.Source
+            }
+            if ([string]::IsNullOrEmpty($pythonPath)) {
+                continue
+            }
+
+            if ($candidate -eq 'py') {
+                try {
+                    & $pythonPath -3 --version > $null 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        $script:PythonArgs = @('-3')
+                        return $pythonPath
+                    }
+                } catch {
+                    continue
+                }
+            }
+            return $pythonPath
+        }
     }
 
-    throw "Python executable not found. Install Python 3.10+ and ensure it is on PATH."
+    throw "Python executable not found. Install Python 3.8 or later and ensure it is on PATH."
 }
 
 function Create-VirtualEnvironment {
@@ -55,7 +87,7 @@ function Create-VirtualEnvironment {
 
     $python = Find-PythonExecutable -VirtualEnvPath $VirtualEnvPath
     Write-Host "Creating virtual environment at $VirtualEnvPath..."
-    & $python -m venv $VirtualEnvPath
+    & $python @PythonArgs -m venv $VirtualEnvPath
 }
 
 function Install-Dependencies {
@@ -65,10 +97,10 @@ function Install-Dependencies {
     )
 
     Write-Host "Upgrading pip..."
-    & $PythonExe -m pip install --upgrade pip
+    & $PythonExe @PythonArgs -m pip install --upgrade pip
 
     Write-Host "Installing package dependencies from requirements.txt..."
-    & $PythonExe -m pip install -r (Join-Path $RepoRoot 'requirements.txt')
+    & $PythonExe @PythonArgs -m pip install -r (Join-Path $RepoRoot 'requirements.txt')
 }
 
 function Create-DesktopShortcut {
@@ -109,7 +141,8 @@ try {
     Create-DesktopShortcut -RepoRoot $repoRoot -PythonExe $pythonExe
 
     Write-Host "DigiSign installation complete." -ForegroundColor Green
-    Write-Host "Launch DigiSign from the desktop shortcut or by running: $pythonExe `"$repoRoot\main.py`""
+    $launchCmd = '"{0}" "{1}"' -f $pythonExe, (Join-Path $repoRoot 'main.py')
+    Write-Host "Launch DigiSign from the desktop shortcut or by running: $launchCmd"
 } catch {
     Write-Host "Installation failed: $_" -ForegroundColor Red
     exit 1
