@@ -144,8 +144,7 @@ class PdfSigner:
                 # Apply certificate preferences after loading
                 self._apply_certificate_preferences()
 
-                if not cert_names:
-                    if self.certificate_status_label:
+                if not cert_names and self.certificate_status_label:
                         self.certificate_status_label.config(
                             text="No certificates found",
                             fg="#d9534f"
@@ -202,57 +201,66 @@ class PdfSigner:
 
     def _update_certificate_display(self, cert: Optional[CertificateInfo] = None) -> None:
         """Update the certificate display labels based on selected certificate"""
+        cert = self._resolve_certificate(cert)
+        self.selected_certificate = cert
+
+        if not cert:
+            self._clear_certificate_display()
+            self._clear_certificate_preferences()
+            return
+
+        self._update_certificate_labels(cert)
+        self._update_certificate_preferences(cert)
+
+    def _resolve_certificate(self, cert: Optional[CertificateInfo]) -> Optional[CertificateInfo]:
         if cert:
-            self.selected_certificate = cert
-        elif self.certificate_combo:
-            index = self.certificate_combo.current()
-            if 0 <= index < len(self.available_certificates):
-                self.selected_certificate = self.available_certificates[index]
-                cert = self.selected_certificate
-            else:
-                self.selected_certificate = None
-                cert = None
-        else:
-            cert = self.selected_certificate
+            return cert
 
-        if cert:
-            # Update status label with certificate info
-            status_text = f"Subject: {cert.friendly_name}\n"
-            status_text += f"Valid to: {cert.valid_to}"
-            if self.certificate_status_label:
-                self.certificate_status_label.config(text=status_text, fg="#5cb85c")
+        if not self.certificate_combo:
+            return self.selected_certificate
 
-            # Update external-password checkbox based on whether this certificate has a stored PKCS#12 password
-            self.selected_certificate_password = cert.password
+        index = self.certificate_combo.current()
+        if 0 <= index < len(self.available_certificates):
+            return self.available_certificates[index]
 
-            # Extract and display signer name from certificate
-            signer_name = self._extract_signer_name_from_cert(cert)
-            if self.signer_name_label:
-                self.signer_name_label.config(text=signer_name if signer_name else "Unknown")
-            if self.certificate_validity_label:
-                valid_text = f"Valid to: {cert.valid_to}"
-                if self._is_certificate_expired(cert):
-                    self.certificate_validity_label.config(text=valid_text, fg="#d9534f")
-                else:
-                    self.certificate_validity_label.config(text=valid_text, fg="#5cb85c")
-            # Save preference
-            Preferences.set_selected_certificate_thumbprint(cert.thumbprint)
-            Preferences.set_selected_certificate_friendly_name(cert.friendly_name)
-            Preferences.set_selected_certificate_path(cert.cert_path)
-        else:
-            if self.certificate_status_label:
-                self.certificate_status_label.config(
-                    text="No certificate selected",
-                    fg="#666"
-                )
-            if self.signer_name_label:
-                self.signer_name_label.config(text="(From certificate)")
-            if self.certificate_validity_label:
-                self.certificate_validity_label.config(text="", fg="#666")
-            # Clear preferences
-            Preferences.set_selected_certificate_thumbprint(None)
-            Preferences.set_selected_certificate_friendly_name(None)
-            Preferences.set_selected_certificate_path(None)
+        return None
+
+    def _update_certificate_labels(self, cert: CertificateInfo) -> None:
+        status_text = f"Subject: {cert.friendly_name}\nValid to: {cert.valid_to}"
+
+        if self.certificate_status_label:
+            self.certificate_status_label.config(text=status_text, fg="#5cb85c")
+
+        self.selected_certificate_password = cert.password
+
+        signer_name = self._extract_signer_name_from_cert(cert)
+        if self.signer_name_label:
+            self.signer_name_label.config(text=signer_name or "Unknown")
+
+        if self.certificate_validity_label:
+            valid_text = f"Valid to: {cert.valid_to}"
+            color = "#d9534f" if self._is_certificate_expired(cert) else "#5cb85c"
+            self.certificate_validity_label.config(text=valid_text, fg=color)
+
+    def _clear_certificate_display(self) -> None:
+        if self.certificate_status_label:
+            self.certificate_status_label.config(text="No certificate selected", fg="#666")
+
+        if self.signer_name_label:
+            self.signer_name_label.config(text="(From certificate)")
+
+        if self.certificate_validity_label:
+            self.certificate_validity_label.config(text="", fg="#666")
+
+    def _update_certificate_preferences(self, cert: CertificateInfo) -> None:
+        Preferences.set_selected_certificate_thumbprint(cert.thumbprint)
+        Preferences.set_selected_certificate_friendly_name(cert.friendly_name)
+        Preferences.set_selected_certificate_path(cert.cert_path)
+
+    def _clear_certificate_preferences(self) -> None:
+        Preferences.set_selected_certificate_thumbprint(None)
+        Preferences.set_selected_certificate_friendly_name(None)
+        Preferences.set_selected_certificate_path(None)
 
     def _extract_signer_name_from_cert(self, cert: Optional[CertificateInfo]) -> str:
         """Extract signer name from certificate subject"""
@@ -285,97 +293,126 @@ class PdfSigner:
             # If we can't parse, assume it's not expired
             return False
 
-
     def _apply_certificate_preferences(self) -> None:
         """Apply saved certificate preferences to the current certificate list"""
-        # Load and select certificate by thumbprint (preferred) or friendly name
-        cert_thumbprint = Preferences.get_selected_certificate_thumbprint()
-        cert_friendly_name = Preferences.get_selected_certificate_friendly_name()
+        index = self._find_preferred_certificate_index()
 
-        selected_index = -1
+        if index is None:
+            self._handle_no_certificates()
+            return
 
-        for idx, cert in enumerate(self.available_certificates):
-            # Try to match by thumbprint first
-            if cert_thumbprint and cert.thumbprint == cert_thumbprint:
-                selected_index = idx
-                break
-            # Fallback to friendly name
-            if cert_friendly_name and cert.friendly_name == cert_friendly_name:
-                selected_index = idx
-                break
+        self._select_certificate_by_index(index)
 
-        # Select the found certificate, or default to first certificate if none found
-        if selected_index >= 0:
-            self.selected_certificate = self.available_certificates[selected_index]
-            if self.certificate_combo:
-                self.certificate_combo.current(selected_index)
-            self._update_certificate_display(self.selected_certificate)
-        elif self.available_certificates:
-            # No saved preference found, select first certificate as default
-            self.selected_certificate = self.available_certificates[0]
-            if self.certificate_combo:
-                self.certificate_combo.current(0)
-            self._update_certificate_display(self.selected_certificate)
-        else:
-            # No certificates available
-            self.selected_certificate = None
-            if self.certificate_status_label:
-                self.certificate_status_label.config(
-                    text="No certificates available",
-                    fg="#666"
-                )
-            if self.signer_name_label:
-                self.signer_name_label.config(text="(From certificate)")
+
+    def _find_preferred_certificate_index(self) -> Optional[int]:
+        certs = self.available_certificates
+        if not certs:
+            return None
+
+        thumbprint = Preferences.get_selected_certificate_thumbprint()
+        name = Preferences.get_selected_certificate_friendly_name()
+
+        for i, cert in enumerate(certs):
+            if thumbprint and cert.thumbprint == thumbprint:
+                return i
+            if name and cert.friendly_name == name:
+                return i
+
+        return 0  # fallback to first certificate
+
+    def _select_certificate_by_index(self, index: int) -> None:
+        cert = self.available_certificates[index]
+        self.selected_certificate = cert
+
+        if self.certificate_combo:
+            self.certificate_combo.current(index)
+
+        self._update_certificate_display(cert)
+
+    def _handle_no_certificates(self) -> None:
+        self.selected_certificate = None
+
+        if self.certificate_status_label:
+            self.certificate_status_label.config(
+                text="No certificates available",
+                fg="#666"
+            )
+
+        if self.signer_name_label:
+            self.signer_name_label.config(text="(From certificate)")
 
     def load_preferences(self) -> None:
         """Load and apply saved preferences (signature image and certificate)."""
-        # Load signature image path
-        sig_image_path = Preferences.get_signature_image_path()
-        if sig_image_path and os.path.isfile(sig_image_path):
-            self.signature_image_path = sig_image_path
+        self._load_signature_image()
+        self._restore_certificate_from_preferences()
+        self._apply_certificate_preferences()
+        self._load_signature_declaration()
+
+    def _load_signature_image(self) -> None:
+        path = Preferences.get_signature_image_path()
+        if path and os.path.isfile(path):
+            self.signature_image_path = path
             self.update_signature_image_label()
 
-        # Restore a saved certificate file path if needed
-        cert_file_path = Preferences.get_selected_certificate_path()
-        if cert_file_path and os.path.isfile(cert_file_path):
-            cert_info = CertificateManager.load_certificate_file(cert_file_path)
+    def _restore_certificate_from_preferences(self) -> None:
+        path = Preferences.get_selected_certificate_path()
+        if not path or not os.path.isfile(path):
+            return
 
-            if not cert_info and cert_file_path.lower().endswith(('.pfx', '.p12')):
-                while True:
-                    password = simpledialog.askstring(
-                        "Certificate Password",
-                        "Enter the password for the saved certificate file:",
-                        show="*"
-                    )
-                    if password is None:
-                        break
+        cert = self._load_certificate_with_optional_password(path)
 
-                    cert_info = CertificateManager.load_certificate_file(cert_file_path, password=password)
-                    if cert_info:
-                        cert_info.password = password
-                        self.selected_certificate_password = password
-                        break
+        if cert:
+            self._add_certificate_if_missing(cert)
+        elif path.lower().endswith(('.pfx', '.p12')):
+            self._show_certificate_load_error()
 
-                    messagebox.showerror(
-                        "Certificate Password",
-                        "Invalid password for the saved certificate file. Please try again."
-                    )
+    def _load_certificate_with_optional_password(self, path: str) -> Optional[CertificateInfo]:
+        cert = CertificateManager.load_certificate_file(path)
+        if cert or not path.lower().endswith(('.pfx', '.p12')):
+            return cert
 
-            if cert_info and not any(c.thumbprint == cert_info.thumbprint for c in self.available_certificates):
-                self.available_certificates.append(cert_info)
-                if self.certificate_combo:
-                    self.certificate_combo['values'] = [cert.friendly_name for cert in self.available_certificates]
-            elif not cert_info and cert_file_path.lower().endswith(('.pfx', '.p12')):
-                if self.certificate_status_label:
-                    self.certificate_status_label.config(
-                        text="Saved certificate file could not be loaded. Load again manually.",
-                        fg="#d9534f"
-                    )
+        return self._prompt_for_certificate_password(path)
 
-        # Apply certificate preferences
-        self._apply_certificate_preferences()
+    def _prompt_for_certificate_password(self, path: str) -> Optional[CertificateInfo]:
+        while True:
+            password = simpledialog.askstring(
+                "Certificate Password",
+                "Enter the password for the saved certificate file:",
+                show="*"
+            )
+            if password is None:
+                return None
 
-        # Load saved signature declaration preference
+            cert = CertificateManager.load_certificate_file(path, password=password)
+            if cert:
+                cert.password = password
+                self.selected_certificate_password = password
+                return cert
+
+            messagebox.showerror(
+                "Certificate Password",
+                "Invalid password for the saved certificate file. Please try again."
+            )
+
+    def _add_certificate_if_missing(self, cert: CertificateInfo) -> None:
+        if any(c.thumbprint == cert.thumbprint for c in self.available_certificates):
+            return
+
+        self.available_certificates.append(cert)
+
+        if self.certificate_combo:
+            self.certificate_combo['values'] = [
+                c.friendly_name for c in self.available_certificates
+            ]
+
+    def _show_certificate_load_error(self) -> None:
+        if self.certificate_status_label:
+            self.certificate_status_label.config(
+                text="Saved certificate file could not be loaded. Load again manually.",
+                fg="#d9534f"
+            )
+
+    def _load_signature_declaration(self) -> None:
         declaration = Preferences.get_signature_declaration()
         if declaration in ["I'm the author", "I reviewed this document"]:
             self.signature_declaration_var.set(declaration)
@@ -705,77 +742,106 @@ class PdfSigner:
         c = canvas.Canvas(output_path, pagesize=(page_width, page_height))
 
         if visual_only:
-            if signature_image_path and os.path.isfile(signature_image_path):
-                try:
-                    image_reader = ImageReader(signature_image_path)
-                    img_w, img_h = image_reader.getSize()
-                    if img_w > 0 and img_h > 0:
-                        scale = min(placement.width / img_w, placement.height / img_h, 1.0)
-                        img_w = img_w * scale
-                        img_h = img_h * scale
-                        image_x = placement.x + (placement.width - img_w) / 2
-                        image_y = placement.y + (placement.height - img_h) / 2
-                        c.drawImage(image_reader, image_x, image_y, width=img_w, height=img_h, mask="auto")
-                except Exception:
-                    pass
+            PdfSigner._draw_centered_image(c, placement, signature_image_path)
             c.save()
             return
 
-        c.setStrokeColorRGB(0.867, 0.894, 1.)
+        PdfSigner._draw_border(c, placement)
+
+        text_lines = PdfSigner._build_text_lines(signer_name, signature_type)
+        text_start_y, line_height = PdfSigner._calculate_text_layout(placement, text_lines)
+
+        text_x = placement.x + 0.1 * inch
+        text_x = PdfSigner._draw_image_and_adjust_text_x(
+            c, placement, signature_image_path, text_x
+        )
+
+        PdfSigner._draw_text_lines(c, text_lines, text_x, text_start_y, line_height)
+        c.save()
+
+    @staticmethod
+    def _draw_border(c, placement: SignaturePlacement) -> None:
+        c.setStrokeColorRGB(0.867, 0.894, 1.0)
         c.setFillColorRGB(0, 0, 0)
         c.setLineWidth(1)
         c.rect(placement.x, placement.y, placement.width, placement.height)
 
-        text_font_size = 6
-        # Calculate text positioning - center vertically in the signature box
-        text_lines = [
-            ("Digitally signed by:", "Helvetica", text_font_size),
-            (signer_name, "Helvetica-Bold", text_font_size),
-            (f"Reason: {signature_type}", "Helvetica", text_font_size),
-            (f"Date: {CertificateManager.get_current_time_iso()}", "Helvetica", text_font_size)
+    @staticmethod
+    def _build_text_lines(signer_name: str, signature_type: str):
+        size = 6
+        return [
+            ("Digitally signed by:", "Helvetica", size),
+            (signer_name, "Helvetica-Bold", size),
+            (f"Reason: {signature_type}", "Helvetica", size),
+            (f"Date: {CertificateManager.get_current_time_iso()}", "Helvetica", size),
         ]
 
-        # Calculate total text height
-        total_text_height = 0
-        line_spacing = 2  # points between lines
-        for text, font_name, font_size in text_lines:
-            total_text_height += font_size + line_spacing
-        total_text_height -= line_spacing  # Remove extra spacing after last line
-        line_height = text_font_size + line_spacing
+    @staticmethod
+    def _calculate_text_layout(placement: SignaturePlacement, text_lines):
+        line_spacing = 2
+        total_height = sum(size + line_spacing for _, _, size in text_lines) - line_spacing
+        line_height = text_lines[0][2] + line_spacing
 
-        # Center text vertically in the signature box
-        # Start from the top of the centered text block
         box_center_y = placement.y + placement.height / 2
-        text_start_y = box_center_y + total_text_height / 2 - line_height / 2 - line_spacing / 2
+        start_y = box_center_y + total_height / 2 - line_height / 2 - line_spacing / 2
 
-        text_x_offset = 0.1 * inch
-        text_x = placement.x + text_x_offset
-        image_margin = 0.08 * inch
-        image_area_width = placement.width * 0.35
-        image_area_height = placement.height - (image_margin * 2)
+        return start_y, line_height
 
-        if signature_image_path and os.path.isfile(signature_image_path):
-            try:
-                image_reader = ImageReader(signature_image_path)
-                img_w, img_h = image_reader.getSize()
-                if img_w > 0 and img_h > 0:
-                    scale = min(image_area_width / img_w, image_area_height / img_h, 1.0)
-                    img_w = img_w * scale
-                    img_h = img_h * scale
-                    image_x = placement.x + image_margin
-                    image_y = placement.y + placement.height - img_h - image_margin
-                    c.drawImage(image_reader, image_x, image_y, width=img_w, height=img_h, mask="auto")
-                    text_x = image_x + img_w + text_x_offset
-            except Exception:
-                text_x = placement.x + text_x_offset
+    @staticmethod
+    def _draw_centered_image(c, placement: SignaturePlacement, path: Optional[str]) -> None:
+        if not path or not os.path.isfile(path):
+            return
 
-        # Draw text lines with proper vertical centering
-        current_y = text_start_y
-        for text, font_name, font_size in text_lines:
-            c.setFont(font_name, font_size)
-            c.drawString(text_x, current_y, text)
-            current_y -= line_height
-        c.save()
+        try:
+            reader = ImageReader(path)
+            img_w, img_h = reader.getSize()
+            if img_w <= 0 or img_h <= 0:
+                return
+
+            scale = min(placement.width / img_w, placement.height / img_h, 1.0)
+            w, h = img_w * scale, img_h * scale
+
+            x = placement.x + (placement.width - w) / 2
+            y = placement.y + (placement.height - h) / 2
+
+            c.drawImage(reader, x, y, width=w, height=h, mask="auto")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _draw_image_and_adjust_text_x(c, placement, path, default_text_x):
+        if not path or not os.path.isfile(path):
+            return default_text_x
+
+        try:
+            reader = ImageReader(path)
+            img_w, img_h = reader.getSize()
+            if img_w <= 0 or img_h <= 0:
+                return default_text_x
+
+            margin = 0.08 * inch
+            area_w = placement.width * 0.35
+            area_h = placement.height - (margin * 2)
+
+            scale = min(area_w / img_w, area_h / img_h, 1.0)
+            w, h = img_w * scale, img_h * scale
+
+            x = placement.x + margin
+            y = placement.y + placement.height - h - margin
+
+            c.drawImage(reader, x, y, width=w, height=h, mask="auto")
+            return x + w + 0.1 * inch
+
+        except Exception:
+            return default_text_x
+
+    @staticmethod
+    def _draw_text_lines(c, text_lines, x, start_y, line_height):
+        y = start_y
+        for text, font, size in text_lines:
+            c.setFont(font, size)
+            c.drawString(x, y, text)
+            y -= line_height
 
     @staticmethod
     def merge_overlay(

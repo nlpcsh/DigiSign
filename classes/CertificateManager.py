@@ -20,12 +20,35 @@ class CertificateManager:
     @staticmethod
     def list_certificates() -> List[CertificateInfo]:
         """List available signing certificates from the local certificate directory and Windows certificate store."""
-        certificates = []
+        certificates: List[CertificateInfo] = []
 
-        if platform.system() == "Windows":
-            try:
-                # Use PowerShell to get certificates from the Windows Personal store
-                ps_command = r"""
+        certificates.extend(CertificateManager._get_windows_certificates())
+        certificates.extend(CertificateManager._get_file_certificates(certificates))
+
+        return certificates
+
+    @staticmethod
+    def _get_windows_certificates() -> List[CertificateInfo]:
+        if platform.system() != "Windows":
+            return []
+
+        try:
+            result = subprocess.run(
+                ['powershell', '-NoProfile', '-Command', CertificateManager._powershell_cert_query()],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return []
+
+            return CertificateManager._parse_windows_cert_output(result.stdout)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _powershell_cert_query() -> str:
+        return r"""
 $certs = Get-ChildItem -Path Cert:\CurrentUser\My -ErrorAction SilentlyContinue
 $result = @()
 foreach ($cert in $certs) {
@@ -39,51 +62,67 @@ foreach ($cert in $certs) {
 }
 $result | ConvertTo-Json -Depth 2
 """
-                result = subprocess.run(
-                    ['powershell', '-NoProfile', '-Command', ps_command],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
 
-                if result.returncode == 0 and result.stdout.strip():
-                    try:
-                        cert_data = json.loads(result.stdout.strip())
-                        if not isinstance(cert_data, list):
-                            cert_data = [cert_data]
-
-                        for cert_dict in cert_data:
-                            if cert_dict.get('Thumbprint'):
-                                friendly_name = cert_dict.get('FriendlyName', '').strip() or cert_dict.get('Subject', 'Unknown')
-                                cert_info = CertificateInfo(
-                                    subject=cert_dict.get('Subject', ''),
-                                    issuer=cert_dict.get('Issuer', ''),
-                                    thumbprint=cert_dict.get('Thumbprint', ''),
-                                    valid_to=cert_dict.get('NotAfter', '').split('T')[0],
-                                    friendly_name=friendly_name
-                                )
-                                certificates.append(cert_info)
-                    except ValueError:
-                        pass
-            except Exception:
-                pass
-
+    @staticmethod
+    def _parse_windows_cert_output(output: str) -> List[CertificateInfo]:
         try:
-            cert_paths = CertificateManager._get_certificate_files()
-            for cert_path in cert_paths:
-                try:
-                    ext = os.path.splitext(cert_path)[1].lower()
-                    if ext in {'.pfx', '.p12'}:
-                        continue
-                    cert_info = CertificateManager.load_certificate_file(cert_path)
-                    if cert_info and not any(c.thumbprint == cert_info.thumbprint for c in certificates):
-                        certificates.append(cert_info)
-                except Exception:
-                    continue
-        except Exception:
-            pass
+            data = json.loads(output.strip())
+        except ValueError:
+            return []
 
-        return certificates
+        if not isinstance(data, list):
+            data = [data]
+
+        certs: List[CertificateInfo] = []
+        for item in data:
+            thumbprint = item.get("Thumbprint")
+            if not thumbprint:
+                continue
+
+            friendly_name = (
+                item.get("FriendlyName", "").strip()
+                or item.get("Subject", "Unknown")
+            )
+
+            certs.append(
+                CertificateInfo(
+                    subject=item.get("Subject", ""),
+                    issuer=item.get("Issuer", ""),
+                    thumbprint=thumbprint,
+                    valid_to=item.get("NotAfter", "").split("T")[0],
+                    friendly_name=friendly_name,
+                )
+            )
+
+        return certs
+
+    @staticmethod
+    def _get_file_certificates(existing: List[CertificateInfo]) -> List[CertificateInfo]:
+        try:
+            paths = CertificateManager._get_certificate_files()
+        except Exception:
+            return []
+
+        certs: List[CertificateInfo] = []
+        existing_thumbprints = {c.thumbprint for c in existing}
+
+        for path in paths:
+            cert = CertificateManager._load_single_certificate(path)
+            if cert and cert.thumbprint not in existing_thumbprints:
+                certs.append(cert)
+
+        return certs
+
+
+    @staticmethod
+    def _load_single_certificate(path: str) -> Optional[CertificateInfo]:
+        try:
+            ext = os.path.splitext(path)[1].lower()
+            if ext in {'.pfx', '.p12'}:
+                return None
+            return CertificateManager.load_certificate_file(path)
+        except Exception:
+            return None
 
     @staticmethod
     def _load_certificate_from_file(cert_path: str) -> Optional[CertificateInfo]:
