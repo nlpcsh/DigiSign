@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# Requires Python 3.8 or later
+# Requires Python 3.10 or later
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PYTHON_CMD=python3
