@@ -34,7 +34,7 @@ class CertificateManager:
 
         try:
             result = subprocess.run(
-                ['powershell', '-NoProfile', '-Command', CertificateManager._powershell_cert_query()],
+                ['powershell', '-WindowStyle Hidden', '-NoProfile', '-Command', CertificateManager._powershell_cert_query()],
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -291,7 +291,7 @@ else {{
 }}
 """
             result = subprocess.run(
-                ['powershell', '-NoProfile', '-Command', ps_command],
+                ['powershell', '-WindowStyle Hidden', '-NoProfile', '-Command', ps_command],
                 capture_output=True,
                 text=True,
                 timeout=25

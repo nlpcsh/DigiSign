@@ -68,7 +68,7 @@ function Find-PythonExecutable {
         }
     }
 
-    throw "Python executable not found. Install Python 3.8 or later and ensure it is on PATH."
+    throw "Python executable not found. Install Python 3.10 or later and ensure it is on PATH."
 }
 
 function Create-VirtualEnvironment {

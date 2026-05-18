@@ -1,6 +1,6 @@
 # DigiSign - X.509 Certificate-Based PDF Signing
 
-**Requires Python 3.8 or later**
+**Requires Python 3.10 or later**
 
 ## Overview
 
@@ -65,16 +65,17 @@ Core data structures:
 ### Design Principles
 
 1. **Separation of Concerns**
+
    - UI building (UIBuilder) separate from business logic (PdfSigner)
    - Certificate operations isolated in CertificateManager
    - Persistent state in Preferences
-
 2. **Decoupled Components**
+
    - UIBuilder doesn't know about certificate management
    - PdfSigner orchestrates components without direct UI creation
    - Easy to test and modify individual components
-
 3. **Clean Dependencies**
+
    - External libraries (tkinter, PyPDF2, pyHanko) used through clear interfaces
    - Certificate operations abstracted for multiple implementations
    - UI framework independent of core logic
@@ -100,7 +101,7 @@ Core data structures:
 
 ## Requirements
 
-- Python 3.8 or later
+- Python 3.10 or later
 - `pip` for installing dependencies
 
 ## Installation
@@ -185,10 +186,11 @@ If you are on Linux or want to use a local certificate file:
 DigiSign uses two methods to access certificates:
 
 1. **Windows CertUtil Command** - Lists certificates from the Personal store
+
    - Requires no special permissions
    - Works with both user and machine stores
-
 2. **Certificate File Access** - Directly reads certificate files
+
    - Location: `%APPDATA%\Microsoft\SystemCertificates\My\Certificates`
    - Reads both PEM and DER formatted certificates
 
