@@ -748,7 +748,7 @@ class PdfSigner:
 
         PdfSigner._draw_border(c, placement)
 
-        text_lines = PdfSigner._build_text_lines(signer_name, signature_type)
+        text_lines = PdfSigner._build_text_lines(signer_name, signature_type, placement)
         text_start_y, line_height = PdfSigner._calculate_text_layout(placement, text_lines)
 
         text_x = placement.x + 0.1 * inch
@@ -767,8 +767,15 @@ class PdfSigner:
         c.rect(placement.x, placement.y, placement.width, placement.height)
 
     @staticmethod
-    def _build_text_lines(signer_name: str, signature_type: str):
-        size = 6
+    def _build_text_lines(
+        signer_name: str,
+        signature_type: str,
+        placement: Optional[SignaturePlacement] = None,
+    ):
+        size = 6.0
+        if placement is not None and placement.height > 0:
+            size = max(3.5, min(9.0, placement.height / 10.0))
+
         return [
             ("Digitally signed by:", "Helvetica", size),
             (signer_name, "Helvetica-Bold", size),
@@ -778,13 +785,20 @@ class PdfSigner:
 
     @staticmethod
     def _calculate_text_layout(placement: SignaturePlacement, text_lines):
-        line_spacing = 2
-        total_height = sum(size + line_spacing for _, _, size in text_lines) - line_spacing
-        line_height = text_lines[0][2] + line_spacing
+        base_size = text_lines[0][2]
+        line_count = len(text_lines)
+        line_spacing = 1.0
 
-        box_center_y = placement.y + placement.height / 2
-        start_y = box_center_y + total_height / 2 - line_height / 2 - line_spacing / 2
+        if placement.height > 0:
+            content_height = (line_count * base_size) + ((line_count - 1) * line_spacing)
+            padding = max(placement.height - content_height, 0.0)
+            top_padding = padding / 2.0
+            line_spacing = max(1.0, min(1.8, padding / max(line_count - 1, 1)))
+            start_y = placement.y + placement.height - top_padding - base_size
+        else:
+            start_y = placement.y
 
+        line_height = base_size + line_spacing
         return start_y, line_height
 
     @staticmethod
