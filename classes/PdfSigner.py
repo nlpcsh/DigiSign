@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 
 from PIL import Image, ImageTk
-import fitz
+import pymupdf
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
@@ -58,7 +58,7 @@ class PdfSigner:
         self.selection: Optional[SignaturePlacement] = None
         self.drag_start: Optional[Tuple[float, float]] = None
         self.selection_rect_id: Optional[int] = None
-        self.fitz_doc: Optional[fitz.Document] = None
+        self.pymupdf_doc: Optional[pymupdf.Document] = None
         self.page_image_tk: Optional[ImageTk.PhotoImage] = None
 
         # Signature state
@@ -452,15 +452,15 @@ class PdfSigner:
         self.page_var.set(1)
         self.page_spin.config(to=len(reader.pages))
 
-        if self.fitz_doc:
+        if self.pymupdf_doc:
             try:
-                self.fitz_doc.close()
+                self.pymupdf_doc.close()
             except Exception:
                 pass
         try:
-            self.fitz_doc = fitz.open(path)
+            self.pymupdf_doc = pymupdf.open(path)
         except Exception as exc:
-            self.fitz_doc = None
+            self.pymupdf_doc = None
             messagebox.showwarning("Open PDF", f"Preview unavailable:\n{exc}")
 
         self.load_page(0)
@@ -477,15 +477,15 @@ class PdfSigner:
         self.page_var.set(1)
         self.page_spin.config(to=len(reader.pages))
 
-        if self.fitz_doc:
+        if self.pymupdf_doc:
             try:
-                self.fitz_doc.close()
+                self.pymupdf_doc.close()
             except Exception:
                 pass
         try:
-            self.fitz_doc = fitz.open(pdf_path)
+            self.pymupdf_doc = pymupdf.open(pdf_path)
         except Exception as exc:
-            self.fitz_doc = None
+            self.pymupdf_doc = None
             messagebox.showwarning("Preview PDF", f"Signed PDF preview unavailable:\n{exc}")
 
         self.load_page(0)
@@ -556,10 +556,10 @@ class PdfSigner:
         return "\n".join(lines)
 
     def render_page_preview(self, page_index: int):
-        if not self.fitz_doc:
+        if not self.pymupdf_doc:
             return None
         try:
-            page = self.fitz_doc.load_page(page_index)
+            page = self.pymupdf_doc.load_page(page_index)
             pix = page.get_pixmap(alpha=False)
             return Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         except Exception:
