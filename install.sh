@@ -44,6 +44,8 @@ if [ -d "$APP_DIR/.venv" ]; then
     source "$APP_DIR/.venv/bin/activate"
 fi
 
+cd $APP_DIR
+
 python3 "$PYTHON_FILE"
 EOF
 
