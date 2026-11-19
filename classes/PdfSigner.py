@@ -72,6 +72,9 @@ class PdfSigner:
         # Page navigation variables
         self.page_var = tk.IntVar(value=1)
 
+        # Debounced window/canvas resize redraw
+        self._resize_after_id: Optional[str] = None
+
     def _build_ui(self) -> None:
         """Build the user interface."""
         # Toolbar
@@ -126,6 +129,7 @@ class PdfSigner:
             self.signature_declaration_combo.bind("<<ComboboxSelected>>", self.on_signature_declaration_selected)
 
         # Canvas events
+        self.canvas.bind("<Configure>", self.on_canvas_configure)
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
@@ -928,3 +932,31 @@ class PdfSigner:
         except Exception as e:
             print(f"✗ Digital signature error: {e}")
             return False
+
+    def on_canvas_configure(self, event: tk.Event) -> None:
+        """Resize and recenter the PDF preview when the window changes size."""
+        width = int(event.width)
+        height = int(event.height)
+
+        # Minimized windows may report a temporary 1x1 canvas size.
+        if width < 10 or height < 10:
+            return
+
+        if width == self.canvas_width and height == self.canvas_height:
+            return
+
+        self.canvas_width = width
+        self.canvas_height = height
+
+        if self._resize_after_id is not None:
+            try:
+                self.canvas.after_cancel(self._resize_after_id)
+            except tk.TclError:
+                pass
+
+        self._resize_after_id = self.canvas.after(50, self._apply_canvas_resize)
+
+    def _apply_canvas_resize(self) -> None:
+        """Apply a settled canvas size and redraw the centered page preview."""
+        self._resize_after_id = None
+        self.redraw_canvas()
