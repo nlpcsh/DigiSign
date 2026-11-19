@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 
 from PIL import Image, ImageTk
-import fitz
+import pymupdf
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
@@ -58,7 +58,7 @@ class PdfSigner:
         self.selection: Optional[SignaturePlacement] = None
         self.drag_start: Optional[Tuple[float, float]] = None
         self.selection_rect_id: Optional[int] = None
-        self.fitz_doc: Optional[fitz.Document] = None
+        self.pymupdf_doc: Optional[pymupdf.Document] = None
         self.page_image_tk: Optional[ImageTk.PhotoImage] = None
 
         # Signature state
@@ -71,6 +71,9 @@ class PdfSigner:
 
         # Page navigation variables
         self.page_var = tk.IntVar(value=1)
+
+        # Debounced window/canvas resize redraw
+        self._resize_after_id: Optional[str] = None
 
     def _build_ui(self) -> None:
         """Build the user interface."""
@@ -126,6 +129,7 @@ class PdfSigner:
             self.signature_declaration_combo.bind("<<ComboboxSelected>>", self.on_signature_declaration_selected)
 
         # Canvas events
+        self.canvas.bind("<Configure>", self.on_canvas_configure)
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
@@ -452,15 +456,15 @@ class PdfSigner:
         self.page_var.set(1)
         self.page_spin.config(to=len(reader.pages))
 
-        if self.fitz_doc:
+        if self.pymupdf_doc:
             try:
-                self.fitz_doc.close()
+                self.pymupdf_doc.close()
             except Exception:
                 pass
         try:
-            self.fitz_doc = fitz.open(path)
+            self.pymupdf_doc = pymupdf.open(path)
         except Exception as exc:
-            self.fitz_doc = None
+            self.pymupdf_doc = None
             messagebox.showwarning("Open PDF", f"Preview unavailable:\n{exc}")
 
         self.load_page(0)
@@ -477,15 +481,15 @@ class PdfSigner:
         self.page_var.set(1)
         self.page_spin.config(to=len(reader.pages))
 
-        if self.fitz_doc:
+        if self.pymupdf_doc:
             try:
-                self.fitz_doc.close()
+                self.pymupdf_doc.close()
             except Exception:
                 pass
         try:
-            self.fitz_doc = fitz.open(pdf_path)
+            self.pymupdf_doc = pymupdf.open(pdf_path)
         except Exception as exc:
-            self.fitz_doc = None
+            self.pymupdf_doc = None
             messagebox.showwarning("Preview PDF", f"Signed PDF preview unavailable:\n{exc}")
 
         self.load_page(0)
@@ -556,10 +560,10 @@ class PdfSigner:
         return "\n".join(lines)
 
     def render_page_preview(self, page_index: int):
-        if not self.fitz_doc:
+        if not self.pymupdf_doc:
             return None
         try:
-            page = self.fitz_doc.load_page(page_index)
+            page = self.pymupdf_doc.load_page(page_index)
             pix = page.get_pixmap(alpha=False)
             return Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         except Exception:
@@ -928,3 +932,31 @@ class PdfSigner:
         except Exception as e:
             print(f"✗ Digital signature error: {e}")
             return False
+
+    def on_canvas_configure(self, event: tk.Event) -> None:
+        """Resize and recenter the PDF preview when the window changes size."""
+        width = int(event.width)
+        height = int(event.height)
+
+        # Minimized windows may report a temporary 1x1 canvas size.
+        if width < 10 or height < 10:
+            return
+
+        if width == self.canvas_width and height == self.canvas_height:
+            return
+
+        self.canvas_width = width
+        self.canvas_height = height
+
+        if self._resize_after_id is not None:
+            try:
+                self.canvas.after_cancel(self._resize_after_id)
+            except tk.TclError:
+                pass
+
+        self._resize_after_id = self.canvas.after(50, self._apply_canvas_resize)
+
+    def _apply_canvas_resize(self) -> None:
+        """Apply a settled canvas size and redraw the centered page preview."""
+        self._resize_after_id = None
+        self.redraw_canvas()
